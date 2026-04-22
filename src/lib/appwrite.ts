@@ -9,7 +9,7 @@ import {
   TablesDB,
 } from 'appwrite';
 
-const endpoint = import.meta.env.VITE_APPWRITE_ENDPOINT?.trim() || 'https://cloud.appwrite.io/v1';
+const endpoint = import.meta.env.VITE_APPWRITE_ENDPOINT?.trim() || 'https://sgp.cloud.appwrite.io/v1';
 const projectId = import.meta.env.VITE_APPWRITE_PROJECT_ID?.trim() || '';
 const databaseId = import.meta.env.VITE_APPWRITE_DATABASE_ID?.trim() || 'thinkdesk';
 const workspacesTableId =
