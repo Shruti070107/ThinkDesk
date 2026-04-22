@@ -27,16 +27,22 @@ export function WorkspaceLayout() {
   const [accounts, setAccounts] = useState<string[]>([]);
   const [activeAccount, setActiveAccount] = useState<string | undefined>();
   
-  const { workspace, addEvent } = useWorkspace();
+  const { workspace, addEvent, isLoadingWorkspace, workspaceError } = useWorkspace();
   const { emails: realEmails, isLoading: emailsLoading, error: emailsError, refetch: refetchEmails } = useEmails(activeAccount);
+
+  useEffect(() => {
+    if (workspaceError) {
+      toast.error(`Appwrite sync issue: ${workspaceError}`);
+    }
+  }, [workspaceError]);
 
   // Fetch accounts on mount
   useEffect(() => {
     import('@/services/emailService').then(({ emailService }) => {
       emailService.getAccounts().then(accs => {
         setAccounts(accs);
-        if (accs.length > 0 && !activeAccount) {
-          setActiveAccount(accs[0]);
+        if (accs.length > 0) {
+          setActiveAccount(current => current || accs[0]);
         }
       });
     });
@@ -171,6 +177,14 @@ export function WorkspaceLayout() {
         return <PageEditor onOpenAI={() => setIsAIOpen(true)} />;
     }
   };
+
+  if (isLoadingWorkspace) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-background text-sm text-muted-foreground">
+        Loading workspace from Appwrite...
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen w-full overflow-hidden">

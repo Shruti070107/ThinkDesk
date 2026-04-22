@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
-import { Mail, Lock, User, ArrowRight, Sparkles, Chrome, Github } from 'lucide-react';
+import { Mail, Lock, User, ArrowRight, Sparkles, Chrome } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
-import { cn } from '@/lib/utils';
 
 interface AuthPageProps {
-  onLogin: (email: string, password: string) => void;
-  onSignup: (email: string, password: string, name: string) => void;
+  onLogin: (email: string, password: string) => Promise<void> | void;
+  onSignup: (email: string, password: string, name: string) => Promise<void> | void;
   onGoogleAuth: () => void;
 }
 
@@ -18,10 +18,12 @@ export function AuthPage({ onLogin, onSignup, onGoogleAuth }: AuthPageProps) {
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
+    setError(null);
     
     try {
       if (mode === 'login') {
@@ -29,6 +31,8 @@ export function AuthPage({ onLogin, onSignup, onGoogleAuth }: AuthPageProps) {
       } else {
         await onSignup(email, password, name);
       }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Authentication failed');
     } finally {
       setIsLoading(false);
     }
@@ -109,11 +113,18 @@ export function AuthPage({ onLogin, onSignup, onGoogleAuth }: AuthPageProps) {
                   variant="outline" 
                   className="w-full gap-3 h-11" 
                   onClick={onGoogleAuth}
+                  disabled={isLoading}
                 >
                   <Chrome className="h-5 w-5" />
                   Continue with Google
                 </Button>
               </div>
+
+              {error && (
+                <Alert variant="destructive">
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
               
               <div className="relative">
                 <Separator />
