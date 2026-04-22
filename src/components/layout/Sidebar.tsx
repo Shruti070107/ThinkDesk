@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronDown, ChevronRight, Plus, Search, Settings, Moon, Sun, Sparkles, FileText, Target, Mail, Calendar, LayoutDashboard, LogOut } from 'lucide-react';
+import { ChevronDown, ChevronRight, Plus, Search, Settings, Moon, Sun, Sparkles, FileText, Target, Mail, Calendar, LayoutDashboard, LogOut, X } from 'lucide-react';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAppwriteAuth } from '@/contexts/AppwriteAuthContext';
@@ -12,6 +12,8 @@ interface SidebarProps {
   onOpenAI: () => void;
   currentView: ViewType;
   onChangeView: (view: ViewType) => void;
+  isOpen?: boolean;
+  onClose?: () => void;
 }
 
 function PageItem({ page, level = 0 }: { page: Page; level?: number }) {
@@ -40,7 +42,7 @@ function PageItem({ page, level = 0 }: { page: Page; level?: number }) {
   );
 }
 
-export function Sidebar({ onOpenAI, currentView, onChangeView }: SidebarProps) {
+export function Sidebar({ onOpenAI, currentView, onChangeView, isOpen = true, onClose }: SidebarProps) {
   const { workspace, addPage, isRemoteWorkspace } = useWorkspace();
   const { user, isConfigured, logout } = useAppwriteAuth();
   const { theme, toggleTheme } = useTheme();
@@ -69,7 +71,18 @@ export function Sidebar({ onOpenAI, currentView, onChangeView }: SidebarProps) {
   ];
 
   return (
-    <aside className="w-60 h-screen bg-sidebar border-r border-sidebar-border flex flex-col">
+    <>
+      {/* Mobile overlay */}
+      {isOpen && onClose && (
+        <div 
+          className="fixed inset-0 bg-background/80 backdrop-blur-sm z-40 md:hidden"
+          onClick={onClose}
+        />
+      )}
+      <aside className={cn(
+        "w-60 h-screen bg-sidebar border-r border-sidebar-border flex flex-col fixed md:relative z-50 transition-transform duration-300 ease-in-out",
+        isOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
+      )}>
       <div className="p-3 border-b border-sidebar-border">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
@@ -78,9 +91,16 @@ export function Sidebar({ onOpenAI, currentView, onChangeView }: SidebarProps) {
             </div>
             <span className="font-semibold text-sm">ThinkDesk AI</span>
           </div>
-          <button onClick={toggleTheme} className="p-1.5 rounded-md hover:bg-sidebar-accent transition-colors">
-            {theme === 'light' ? <Moon className="h-4 w-4 text-muted-foreground" /> : <Sun className="h-4 w-4 text-muted-foreground" />}
-          </button>
+          <div className="flex items-center gap-1">
+            <button onClick={toggleTheme} className="p-1.5 rounded-md hover:bg-sidebar-accent transition-colors">
+              {theme === 'light' ? <Moon className="h-4 w-4 text-muted-foreground" /> : <Sun className="h-4 w-4 text-muted-foreground" />}
+            </button>
+            {onClose && (
+              <button onClick={onClose} className="p-1.5 rounded-md hover:bg-sidebar-accent transition-colors md:hidden">
+                <X className="h-4 w-4 text-muted-foreground" />
+              </button>
+            )}
+          </div>
         </div>
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
@@ -145,5 +165,6 @@ export function Sidebar({ onOpenAI, currentView, onChangeView }: SidebarProps) {
 
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </aside>
+    </>
   );
 }

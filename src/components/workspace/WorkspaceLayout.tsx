@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Menu } from 'lucide-react';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { PageEditor } from '@/components/editor/PageEditor';
 import { AIAssistant } from '@/components/ai/AIAssistant';
@@ -19,6 +20,7 @@ export type ViewType = 'dashboard' | 'pages' | 'inbox' | 'calendar' | 'scheduler
 
 export function WorkspaceLayout() {
   const [isAIOpen, setIsAIOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [currentView, setCurrentView] = useState<ViewType>('dashboard');
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
   const [schedulerEmail, setSchedulerEmail] = useState<Email | null>(null);
@@ -187,14 +189,30 @@ export function WorkspaceLayout() {
   }
 
   return (
-    <div className="flex h-screen w-full overflow-hidden">
+    <div className="flex h-screen w-full overflow-hidden bg-background">
       <Sidebar 
         onOpenAI={() => setIsAIOpen(true)} 
         currentView={currentView}
-        onChangeView={setCurrentView}
+        onChangeView={(view) => {
+          setCurrentView(view);
+          setIsSidebarOpen(false);
+        }}
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
       />
-      <main className="flex-1 overflow-hidden">
-        {renderContent()}
+      <main className="flex-1 overflow-hidden flex flex-col relative">
+        <div className="md:hidden p-3 border-b border-border flex items-center bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-10">
+          <button 
+            onClick={() => setIsSidebarOpen(true)}
+            className="p-2 -ml-2 mr-2 rounded-md hover:bg-accent"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+          <span className="font-medium text-sm capitalize">{currentView}</span>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          {renderContent()}
+        </div>
       </main>
       <AIAssistant isOpen={isAIOpen} onClose={() => setIsAIOpen(false)} />
       

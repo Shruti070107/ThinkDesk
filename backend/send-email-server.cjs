@@ -17,6 +17,9 @@ const nodemailer = require('nodemailer');
 const Imap = require('imap');
 const { simpleParser } = require('mailparser');
 const path = require('path');
+const fs = require('fs');
+
+const TOKENS_PATH = path.join(__dirname, 'tokens.json');
 
 const app = express();
 app.use(express.json());
@@ -78,8 +81,24 @@ if (USE_SMTP) {
 // Gmail API setup
 const oauth2Client = USE_GMAIL_API ? new OAuth2Client(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI) : null;
 
-// In-memory token storage (use database in production)
+// In-memory token storage, persisted to disk
 let userTokens = {};
+if (fs.existsSync(TOKENS_PATH)) {
+  try {
+    userTokens = JSON.parse(fs.readFileSync(TOKENS_PATH, 'utf8'));
+    console.log(`✅ Loaded tokens for ${Object.keys(userTokens).length} account(s) from disk.`);
+  } catch (err) {
+    console.error('❌ Failed to load tokens from disk:', err);
+  }
+}
+
+function saveTokens() {
+  try {
+    fs.writeFileSync(TOKENS_PATH, JSON.stringify(userTokens, null, 2));
+  } catch (err) {
+    console.error('❌ Failed to save tokens to disk:', err);
+  }
+}
 
 // SMTP transporter setup
 let smtpTransporter = null;
@@ -170,6 +189,7 @@ app.get('/api/auth/google/callback', async (req, res) => {
 
     // Store tokens keyed by email address explicitly
     userTokens[emailAddress] = tokens;
+    saveTokens();
     
     // Create a simple frontend postMessage to notify the parent window (if opened in popup) or redirect
     res.send(`
@@ -248,6 +268,7 @@ app.get('/api/emails', async (req, res) => {
            const firstAccount = Object.keys(userTokens)[0];
            if (firstAccount) userTokens[firstAccount] = credentials;
         }
+        saveTokens();
 
         oauth2ClientForRead.setCredentials(credentials);
       }
@@ -783,6 +804,7 @@ app.post('/api/emails/send', async (req, res) => {
            const firstAccount = Object.keys(userTokens)[0];
            if (firstAccount) userTokens[firstAccount] = credentials;
         }
+        saveTokens();
         oauth2Client.setCredentials(credentials);
       }
 
