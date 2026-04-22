@@ -1,11 +1,16 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState, ReactNode } from 'react';
 import { Page, Task, Goal, Block, Workspace } from '@/types/workspace';
 import { CalendarEvent } from '@/types/email';
 import { dummyWorkspace } from '@/data/dummyData';
+import { useAppwriteAuth } from '@/contexts/AppwriteAuthContext';
+import { getOrCreateWorkspace, saveWorkspace } from '@/services/appwriteWorkspaceService';
 
 interface WorkspaceContextType {
   workspace: Workspace;
   currentPage: Page | null;
+  isLoadingWorkspace: boolean;
+  workspaceError: string | null;
+  isRemoteWorkspace: boolean;
   setCurrentPage: (page: Page | null) => void;
   updatePage: (pageId: string, updates: Partial<Page>) => void;
   addPage: (page: Page) => void;
@@ -26,8 +31,82 @@ interface WorkspaceContextType {
 const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefined);
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
+  const { user, isConfigured } = useAppwriteAuth();
+  const userId = user?.$id;
   const [workspace, setWorkspace] = useState<Workspace>(dummyWorkspace);
   const [currentPage, setCurrentPage] = useState<Page | null>(dummyWorkspace.pages[0]);
+  const [workspaceRowId, setWorkspaceRowId] = useState<string | null>(null);
+  const [isLoadingWorkspace, setIsLoadingWorkspace] = useState(false);
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
+  const hasLoadedRemoteWorkspace = useRef(false);
+  const skipNextSave = useRef(true);
+
+  const isRemoteWorkspace = Boolean(isConfigured && userId && workspaceRowId);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    if (!isConfigured || !userId) {
+      setWorkspace(dummyWorkspace);
+      setCurrentPage(dummyWorkspace.pages[0] || null);
+      setWorkspaceRowId(null);
+      setWorkspaceError(null);
+      setIsLoadingWorkspace(false);
+      hasLoadedRemoteWorkspace.current = false;
+      skipNextSave.current = true;
+      return;
+    }
+
+    setIsLoadingWorkspace(true);
+    setWorkspaceError(null);
+
+    getOrCreateWorkspace(userId, dummyWorkspace)
+      .then(({ rowId, workspace: loadedWorkspace }) => {
+        if (isCancelled) return;
+        setWorkspace(loadedWorkspace);
+        setCurrentPage(loadedWorkspace.pages[0] || null);
+        setWorkspaceRowId(rowId);
+        hasLoadedRemoteWorkspace.current = true;
+        skipNextSave.current = true;
+      })
+      .catch(error => {
+        if (isCancelled) return;
+        const message = error instanceof Error ? error.message : 'Failed to load Appwrite workspace';
+        setWorkspaceError(message);
+        setWorkspace(dummyWorkspace);
+        setCurrentPage(dummyWorkspace.pages[0] || null);
+        setWorkspaceRowId(null);
+      })
+      .finally(() => {
+        if (!isCancelled) {
+          setIsLoadingWorkspace(false);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [isConfigured, userId]);
+
+  useEffect(() => {
+    if (!userId || !workspaceRowId || !hasLoadedRemoteWorkspace.current || isLoadingWorkspace) {
+      return;
+    }
+
+    if (skipNextSave.current) {
+      skipNextSave.current = false;
+      return;
+    }
+
+    const saveTimer = window.setTimeout(() => {
+      saveWorkspace(workspaceRowId, userId, workspace).catch(error => {
+        const message = error instanceof Error ? error.message : 'Failed to save Appwrite workspace';
+        setWorkspaceError(message);
+      });
+    }, 700);
+
+    return () => window.clearTimeout(saveTimer);
+  }, [workspace, workspaceRowId, userId, isLoadingWorkspace]);
 
   const findAndUpdatePage = (pages: Page[], pageId: string, updates: Partial<Page>): Page[] => {
     return pages.map(page => {
@@ -193,6 +272,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       value={{
         workspace,
         currentPage,
+        isLoadingWorkspace,
+        workspaceError,
+        isRemoteWorkspace,
         setCurrentPage,
         updatePage,
         addPage,

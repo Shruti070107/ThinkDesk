@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { ChevronDown, ChevronRight, Plus, Search, Settings, Moon, Sun, Sparkles, FileText, Target, Mail, Calendar, LayoutDashboard } from 'lucide-react';
+import { ChevronDown, ChevronRight, Plus, Search, Settings, Moon, Sun, Sparkles, FileText, Target, Mail, Calendar, LayoutDashboard, LogOut } from 'lucide-react';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useAppwriteAuth } from '@/contexts/AppwriteAuthContext';
 import { Page } from '@/types/workspace';
 import { cn } from '@/lib/utils';
 import { ViewType } from '@/components/workspace/WorkspaceLayout';
@@ -40,7 +41,8 @@ function PageItem({ page, level = 0 }: { page: Page; level?: number }) {
 }
 
 export function Sidebar({ onOpenAI, currentView, onChangeView }: SidebarProps) {
-  const { workspace, addPage } = useWorkspace();
+  const { workspace, addPage, isRemoteWorkspace } = useWorkspace();
+  const { user, isConfigured, logout } = useAppwriteAuth();
   const { theme, toggleTheme } = useTheme();
   const [searchQuery, setSearchQuery] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -116,6 +118,25 @@ export function Sidebar({ onOpenAI, currentView, onChangeView }: SidebarProps) {
       )}
 
       <div className="p-3 border-t border-sidebar-border">
+        {isConfigured && user && (
+          <div className="mb-2 rounded-lg border border-sidebar-border bg-sidebar-accent/50 p-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="truncate text-xs font-medium">{user.name || user.email}</p>
+                <p className="text-[11px] text-muted-foreground">
+                  {isRemoteWorkspace ? 'Appwrite synced' : 'Appwrite local fallback'}
+                </p>
+              </div>
+              <button
+                onClick={() => logout()}
+                className="p-1.5 rounded-md hover:bg-sidebar-accent transition-colors"
+                title="Sign out"
+              >
+                <LogOut className="h-3.5 w-3.5 text-muted-foreground" />
+              </button>
+            </div>
+          </div>
+        )}
         <button className="sidebar-item w-full" onClick={() => setSettingsOpen(true)}>
           <Settings className="h-4 w-4 text-muted-foreground" />
           <span>Settings</span>
