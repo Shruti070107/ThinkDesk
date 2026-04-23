@@ -9,6 +9,30 @@ import { Email } from '@/types/email';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
+// Detect if we're running in a deployed environment (not localhost)
+const isDeployedEnv = !window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1');
+
+export { isDeployedEnv };
+
+/**
+ * Check if the backend server is available
+ */
+export async function isBackendAvailable(): Promise<boolean> {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
+    const response = await fetch(`${API_BASE_URL}/api/auth/accounts`, {
+      credentials: 'include',
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    const contentType = response.headers.get('content-type') || '';
+    return contentType.includes('application/json');
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Fetch emails from backend API
  */
@@ -20,10 +44,21 @@ async function fetchEmails(activeAccount?: string): Promise<Email[]> {
       url.searchParams.append('account', activeAccount);
     }
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+
     const response = await fetch(url.toString(), {
-      credentials: 'include', // Include cookies for auth
+      credentials: 'include',
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
     
+    // Check content-type — if it's HTML, the backend is not running (got a 404 page)
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      throw new Error('BACKEND_OFFLINE');
+    }
+
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       const errorMessage = errorData.message || errorData.error || `HTTP ${response.status}: ${response.statusText}`;
@@ -38,13 +73,18 @@ async function fetchEmails(activeAccount?: string): Promise<Email[]> {
       receivedAt: new Date(email.receivedAt),
     }));
   } catch (error) {
-    // Handle network errors
+    // Handle abort (timeout)
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('BACKEND_OFFLINE');
+    }
+    // Handle network errors (backend not running)
     if (error instanceof TypeError && error.message.includes('fetch')) {
-      throw new Error('Cannot connect to backend server. Make sure the backend is running on port 8000.');
+      throw new Error('BACKEND_OFFLINE');
     }
     throw error;
   }
 }
+
 
 /**
  * Mark email as read
@@ -107,8 +147,17 @@ export function useEmails(activeAccount?: string) {
   } = useQuery<Email[]>({
     queryKey: ['emails', activeAccount],
     queryFn: () => fetchEmails(activeAccount),
-    refetchInterval: 5000, // Refetch every 5 seconds
-    staleTime: 3000, // Consider data stale after 3 seconds
+    refetchInterval: (query) => {
+      // Don't keep polling if backend is offline
+      if (query.state.error instanceof Error && query.state.error.message === 'BACKEND_OFFLINE') return false;
+      return 5000;
+    },
+    staleTime: 3000,
+    retry: (failureCount, error) => {
+      // Don't retry if backend is simply offline
+      if (error instanceof Error && error.message === 'BACKEND_OFFLINE') return false;
+      return failureCount < 2;
+    },
   });
   
   // Mark email as read mutation
@@ -136,10 +185,13 @@ export function useEmails(activeAccount?: string) {
     },
   });
   
+  const isBackendOffline = error instanceof Error && error.message === 'BACKEND_OFFLINE';
+
   return {
     emails,
     isLoading,
-    error,
+    error: isBackendOffline ? null : error,  // Don't propagate offline error as a UI error
+    isBackendOffline,
     refetch,
     markAsRead: markAsReadMutation.mutate,
     toggleStar: toggleStarMutation.mutate,

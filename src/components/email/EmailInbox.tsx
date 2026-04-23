@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Mail, Star, Clock, AlertTriangle, Users, ArrowRight, CheckCircle2, Calendar, ListTodo, Reply, Tag, Loader2, RefreshCw, AlertCircle } from 'lucide-react';
+import { Mail, Star, Clock, AlertTriangle, Users, ArrowRight, CheckCircle2, Calendar, ListTodo, Reply, Tag, Loader2, RefreshCw, AlertCircle, ServerOff } from 'lucide-react';
 import { Email, EmailCategory } from '@/types/email';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
@@ -16,6 +16,7 @@ interface EmailInboxProps {
   onActionClick: (email: Email, actionType: string) => void;
   isLoading?: boolean;
   error?: Error | null;
+  isBackendOffline?: boolean;
   onRefresh?: () => void | Promise<void>;
   
   accounts?: string[];
@@ -237,6 +238,7 @@ export function EmailInbox({
   onActionClick, 
   isLoading = false, 
   error, 
+  isBackendOffline = false,
   onRefresh,
   accounts = [],
   activeAccount,
@@ -344,6 +346,15 @@ export function EmailInbox({
             </div>
           )}
           
+          {isBackendOffline && (
+            <Alert className="mb-2 border-amber-500/30 bg-amber-500/10">
+              <ServerOff className="h-4 w-4 text-amber-500" />
+              <AlertDescription className="text-xs text-amber-700 dark:text-amber-400">
+                <strong>Gmail sync unavailable.</strong> The email backend server only runs locally. 
+                Run <code className="bg-muted px-1 rounded">npm run backend</code> on your machine to sync Gmail.
+              </AlertDescription>
+            </Alert>
+          )}
           {error && (
             <Alert variant="destructive" className="mb-2">
               <AlertCircle className="h-4 w-4" />
@@ -396,6 +407,16 @@ export function EmailInbox({
             <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
               <Loader2 className="h-8 w-8 mb-2 animate-spin" />
               <span className="text-sm">Loading emails from Gmail...</span>
+            </div>
+          ) : isBackendOffline && emails.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full px-6 py-10 text-center text-muted-foreground">
+              <ServerOff className="h-12 w-12 mb-4 opacity-40" />
+              <p className="text-sm font-medium mb-1">Gmail Sync Not Available</p>
+              <p className="text-xs text-muted-foreground mb-4">The email backend only runs on your local machine.</p>
+              <div className="text-left bg-muted rounded-lg p-3 text-xs font-mono w-full">
+                <p className="text-muted-foreground mb-1"># In your project folder:</p>
+                <p>npm run backend</p>
+              </div>
             </div>
           ) : filteredEmails.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">

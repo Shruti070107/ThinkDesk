@@ -30,7 +30,7 @@ export function WorkspaceLayout() {
   const [activeAccount, setActiveAccount] = useState<string | undefined>();
   
   const { workspace, addEvent, isLoadingWorkspace, workspaceError } = useWorkspace();
-  const { emails: realEmails, isLoading: emailsLoading, error: emailsError, refetch: refetchEmails } = useEmails(activeAccount);
+  const { emails: realEmails, isLoading: emailsLoading, error: emailsError, isBackendOffline, refetch: refetchEmails } = useEmails(activeAccount);
 
   useEffect(() => {
     if (workspaceError) {
@@ -75,8 +75,8 @@ export function WorkspaceLayout() {
     }
   };
   
-  // Use real emails if available, otherwise fall back to dummy emails
-  const emails = realEmails.length > 0 ? realEmails : dummyEmails;
+  // Use real emails if available. On deployed site with no backend, show empty state.
+  const emails = realEmails.length > 0 ? realEmails : (isBackendOffline ? [] : dummyEmails);
   
   // Auto-refresh emails every 5 seconds (handled by React Query)
   // Emails will automatically update in the inbox
@@ -129,6 +129,7 @@ export function WorkspaceLayout() {
             onActionClick={handleEmailAction}
             isLoading={emailsLoading}
             error={emailsError}
+            isBackendOffline={isBackendOffline}
             accounts={accounts}
             activeAccount={activeAccount}
             onChangeAccount={setActiveAccount}
