@@ -361,7 +361,7 @@ export function EmailInbox({
             <Alert className="mb-2 border-blue-500/30 bg-blue-500/10">
               <Mail className="h-4 w-4 text-blue-500" />
               <AlertDescription className="text-xs text-blue-700 dark:text-blue-400">
-                <strong>Gmail not connected.</strong> Connect your Gmail account to sync emails automatically.
+                <strong>Gmail not connected.</strong> Sign in with Google, or connect a Gmail account to sync emails automatically.
               </AlertDescription>
             </Alert>
           )}
@@ -423,8 +423,8 @@ export function EmailInbox({
               <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-500 to-violet-500 flex items-center justify-center mb-4">
                 <Mail className="h-8 w-8 text-white" />
               </div>
-              <p className="text-base font-semibold mb-1">Connect Gmail to Sync Emails</p>
-              <p className="text-sm text-muted-foreground mb-4">Your Gmail inbox will sync automatically through Appwrite after Google consent completes.</p>
+              <p className="text-base font-semibold mb-1">Sign In With Google to Sync Gmail</p>
+              <p className="text-sm text-muted-foreground mb-4">Google sign-in now connects Gmail in the same Appwrite consent flow. Use the button below only if you signed in another way or want to add another inbox.</p>
               {onAddAccount && (
                 <button
                   onClick={onAddAccount}

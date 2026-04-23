@@ -11,14 +11,14 @@ import { Models } from 'appwrite';
 import { appwriteAccount, appwriteConfig, ID, OAuthProvider } from '@/lib/appwrite';
 
 const AUTH_CALLBACK_MARKER = 'google';
-const GOOGLE_LOGIN_SCOPES = [
+const GOOGLE_BASE_SCOPES = [
   'openid',
   'email',
   'profile',
 ];
 
 const GOOGLE_GMAIL_SCOPES = [
-  ...GOOGLE_LOGIN_SCOPES,
+  ...GOOGLE_BASE_SCOPES,
   'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/gmail.send',
   'https://www.googleapis.com/auth/gmail.modify',
@@ -105,7 +105,7 @@ export function AppwriteAuthProvider({ children }: { children: ReactNode }) {
       throw new Error('Appwrite is not configured. Add VITE_APPWRITE_PROJECT_ID to your .env file.');
     }
 
-    const scopes = intent === 'link' ? GOOGLE_GMAIL_SCOPES : GOOGLE_LOGIN_SCOPES;
+    const scopes = GOOGLE_GMAIL_SCOPES;
 
     appwriteAccount.createOAuth2Token({
       provider: OAuthProvider.Google,

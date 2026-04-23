@@ -140,8 +140,9 @@ export function AccountManager({
                 Google sign-in.
               </li>
               <li>
-                Use <strong>Continue with Google</strong> on the login screen, or click{' '}
-                <strong>Add Account</strong> here to link another Gmail identity.
+                Use <strong>Continue with Google</strong> on the login screen to sign in and
+                connect Gmail in one step, or click <strong>Add Account</strong> here to link
+                another Gmail identity.
               </li>
             </ol>
             <pre className="text-xs bg-muted p-3 rounded-lg overflow-x-auto">
@@ -151,7 +152,8 @@ export function AccountManager({
 + ThinkDesk domain allowed`}
             </pre>
             <p className="text-xs text-muted-foreground">
-              After saving, reload ThinkDesk and click <strong>Add Account</strong>.
+              After saving, reload ThinkDesk and sign in with Google. Gmail will be connected
+              during the same login flow.
             </p>
           </div>
         )}
@@ -205,7 +207,8 @@ export function AccountManager({
             </div>
             <h3 className="font-semibold text-lg mb-2">No accounts connected</h3>
             <p className="text-muted-foreground text-sm mb-6 max-w-xs">
-              Connect a Google identity to start reading and managing Gmail inside ThinkDesk.
+              Sign in with Google to connect Gmail automatically, or use Add Account to link
+              another Gmail inbox later.
             </p>
             <Button onClick={handleAddAccount}>
               <Plus className="h-4 w-4 mr-2" />
@@ -222,6 +225,7 @@ export function AccountManager({
             </h2>
             <ul className="text-sm text-muted-foreground space-y-2">
               <li>Click <strong>Add Account</strong> to link another Google identity through Appwrite.</li>
+              <li><strong>Continue with Google</strong> now signs in and connects Gmail in one pass.</li>
               <li>Click any account above to make it the <strong>active account</strong> and switch the inbox.</li>
               <li>When replying to an email, the active identity is used as the sender.</li>
               <li>Gmail sync only works when the identity was connected through Appwrite Google auth.</li>
