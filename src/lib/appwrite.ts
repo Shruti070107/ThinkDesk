@@ -1,6 +1,8 @@
 import {
   Account,
   Client,
+  ExecutionMethod,
+  Functions,
   ID,
   OAuthProvider,
   Permission,
@@ -32,6 +34,7 @@ if (projectId) {
 }
 
 export const appwriteAccount = new Account(appwriteClient);
+export const appwriteFunctions = new Functions(appwriteClient);
 export const appwriteTablesDB = new TablesDB(appwriteClient);
 
-export { ID, OAuthProvider, Permission, Query, Role };
+export { ExecutionMethod, ID, OAuthProvider, Permission, Query, Role };

@@ -1,6 +1,6 @@
 # Appwrite Migration
 
-ThinkDesk now uses Appwrite for authentication and workspace persistence when the `VITE_APPWRITE_*` variables are configured. If those variables are missing, the app still opens with the bundled demo workspace so local development is not blocked.
+ThinkDesk now uses Appwrite for authentication, workspace persistence, and Gmail sync when the `VITE_APPWRITE_*` variables are configured. If those variables are missing, the app still opens with the bundled demo workspace so local development is not blocked.
 
 ## Appwrite MCP
 
@@ -31,7 +31,7 @@ VITE_APPWRITE_DATABASE_ID=thinkdesk
 VITE_APPWRITE_WORKSPACES_TABLE_ID=workspaces
 ```
 
-Add these server-side values only when provisioning Appwrite resources:
+Add these server-side values only when provisioning Appwrite resources or deploying the Gmail function:
 
 ```bash
 APPWRITE_ENDPOINT=https://cloud.appwrite.io/v1
@@ -39,6 +39,7 @@ APPWRITE_PROJECT_ID=your-project-id
 APPWRITE_API_KEY=your-server-api-key
 APPWRITE_DATABASE_ID=thinkdesk
 APPWRITE_WORKSPACES_TABLE_ID=workspaces
+FRONTEND_URL=https://your-site.appwrite.network
 ```
 
 ## Provision Resources
@@ -59,9 +60,38 @@ The setup creates:
 - Columns: `ownerId`, `name`, `schemaVersion`, `pages`, `tasks`, `goals`, `events`
 - Index: `owner_lookup`
 
+## Gmail Sync Architecture
+
+ThinkDesk no longer depends on the old localhost Gmail OAuth server or a `gmail_tokens` table.
+
+The current Gmail flow is:
+
+1. Enable the Google provider in Appwrite Auth.
+2. Start Google sign-in from ThinkDesk with Gmail scopes.
+3. Return to ThinkDesk with Appwrite OAuth token parameters.
+4. Finish the Appwrite session in the browser callback step.
+5. Execute the `gmail-api` Appwrite Function with the signed-in user's Appwrite session.
+6. Read connected Google identities from Appwrite and use their provider access token for Gmail API calls.
+
+This keeps Gmail access tied to the Appwrite-authenticated user and fixes the mobile redirect/session race that could leave users stuck after Google sign-in.
+
+## Mobile Login Fix
+
+Older builds relied on Appwrite's direct OAuth session redirect behavior. That was unreliable on some phone browsers because the browser returned to the app before the Appwrite session was fully visible to the SPA.
+
+The current flow uses:
+
+- `createOAuth2Token(...)` instead of direct session creation
+- a callback handoff inside ThinkDesk
+- `account.createSession({ userId, secret })` after redirect
+- a short retry loop before routing to the dashboard
+
+The callback now returns through the app root with query params, so the login flow does not depend on a separate deep route being served by the hosting platform.
+
 ## Runtime Behavior
 
-- Login and signup use Appwrite Account.
-- Google sign-in uses Appwrite OAuth and requires Google OAuth to be enabled in the Appwrite console.
+- Email/password login and signup use Appwrite Account.
+- Google sign-in uses Appwrite OAuth and requires the Google provider to be enabled in the Appwrite console.
+- Gmail sync is automatic for any Google identity linked through Appwrite.
 - On first login, the app seeds the user's Appwrite workspace from the existing demo workspace.
 - Workspace pages, tasks, goals, and calendar events are saved back to Appwrite with a short debounce after edits.

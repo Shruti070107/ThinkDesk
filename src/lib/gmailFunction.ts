@@ -1,97 +1,103 @@
 /**
- * Gmail API Appwrite Function client
- * Calls the deployed Appwrite Function for all Gmail operations.
- * Uses body.action routing for Appwrite 1.9.x compatibility.
+ * Gmail Appwrite Function client.
+ * Uses the authenticated Appwrite Web SDK so function executions inherit the
+ * current user's Appwrite session and Google identity.
  */
 
-const APPWRITE_ENDPOINT = import.meta.env.VITE_APPWRITE_ENDPOINT?.trim() || 'https://sgp.cloud.appwrite.io/v1';
-const PROJECT_ID = import.meta.env.VITE_APPWRITE_PROJECT_ID || '69cee1350014aabd8f51';
+import { ExecutionMethod } from 'appwrite';
+import { appwriteConfig, appwriteFunctions } from '@/lib/appwrite';
+
 const FUNCTION_ID = 'gmail-api';
-const EXEC_URL = `${APPWRITE_ENDPOINT}/functions/${FUNCTION_ID}/executions`;
 
-/** Call the Appwrite Gmail function with a specific action */
-async function callFunction(
+type FunctionMethod = 'GET' | 'POST';
+
+type FunctionPayload = Record<string, unknown>;
+
+async function callFunction<T>(
   action: string,
-  method: 'GET' | 'POST' = 'GET',
-  params?: Record<string, unknown>
-): Promise<Response> {
-  // Build the request body — use body.action for routing (Appwrite 1.9.x compat)
-  const payload: Record<string, unknown> = {
-    path: `/${action}`,   // Try req.path (works in some versions)
-    method,
-    action,               // Fallback: read in body.action
-    ...params,
-  };
+  method: FunctionMethod = 'GET',
+  params: FunctionPayload = {}
+): Promise<T> {
+  if (!appwriteConfig.isConfigured) {
+    throw new Error('Appwrite is not configured. Gmail sync requires VITE_APPWRITE_* values.');
+  }
 
-  const response = await fetch(EXEC_URL, {
-    method: 'POST',
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (typeof value === 'undefined' || value === null) {
+      continue;
+    }
+    query.set(key, String(value));
+  }
+
+  const execution = await appwriteFunctions.createExecution({
+    functionId: FUNCTION_ID,
+    async: false,
+    xpath: `/${action}${query.size > 0 ? `?${query.toString()}` : ''}`,
+    method: method === 'GET' ? ExecutionMethod.GET : ExecutionMethod.POST,
     headers: {
       'Content-Type': 'application/json',
-      'X-Appwrite-Project': PROJECT_ID,
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({
+      action,
+      method,
+      query: params,
+      ...params,
+    }),
   });
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Function call failed: ${response.status} - ${text}`);
+  const status = execution.responseStatusCode || 200;
+  const responseBody = execution.responseBody || '{}';
+
+  let payload: unknown;
+  try {
+    payload = JSON.parse(responseBody);
+  } catch {
+    payload = { message: responseBody };
   }
 
-  const execution = await response.json();
+  if (status >= 400) {
+    const message =
+      payload && typeof payload === 'object' && 'message' in payload
+        ? String(payload.message)
+        : `Function call failed with status ${status}`;
 
-  // Parse the function's response body
-  const functionResponseBody = execution.responseBody || '{}';
-  const functionStatusCode = execution.responseStatusCode || 200;
+    const error = new Error(message) as Error & { status?: number };
+    error.status = status;
+    throw error;
+  }
 
-  return new Response(functionResponseBody, {
-    status: functionStatusCode,
-    headers: { 'Content-Type': 'application/json' },
-  });
+  return payload as T;
 }
 
-/** Get list of connected Gmail accounts */
+/** Get list of Gmail identities connected to the current Appwrite user. */
 export async function getGmailAccounts(): Promise<string[]> {
-  const response = await callFunction('auth/accounts', 'GET');
-  const data = await response.json();
-  return data.accounts || [];
+  const data = await callFunction<{ accounts?: string[] }>('auth/accounts', 'GET');
+  return Array.isArray(data.accounts) ? data.accounts : [];
 }
 
-/** Get the Gmail OAuth URL from the Appwrite function */
-export async function getGmailAuthUrl(redirectUrl?: string): Promise<string> {
-  const response = await callFunction('auth/google', 'GET', { redirect: redirectUrl });
-  const data = await response.json();
-  if (data.authUrl) return data.authUrl;
-  throw new Error('Could not get OAuth URL from function');
-}
-
-/** Fetch emails from Gmail via Appwrite Function */
+/** Fetch emails from Gmail via the Appwrite Function. */
 export async function fetchGmailEmails(account?: string, limit = 20): Promise<unknown[]> {
-  const params: Record<string, unknown> = { limit };
-  if (account) params.account = account;
-
-  const response = await callFunction('emails', 'GET', params);
-  
-  if (!response.ok) {
-    let error: Record<string, string> = {};
-    try { error = await response.json(); } catch { /* ignore */ }
-    if (response.status === 401) {
-      throw new Error('GMAIL_NOT_CONNECTED');
+  try {
+    const data = await callFunction<unknown[]>('emails', 'GET', { account, limit });
+    return Array.isArray(data) ? data : [];
+  } catch (error) {
+    if (error instanceof Error) {
+      const status = (error as Error & { status?: number }).status;
+      if (status === 401 || status === 403) {
+        throw new Error('GMAIL_NOT_CONNECTED');
+      }
     }
-    throw new Error(error.message || `Failed to fetch emails: ${response.status}`);
+    throw error;
   }
-  
-  return response.json();
 }
 
-/** Send email via Appwrite Function */
+/** Send email via the Appwrite Gmail function. */
 export async function sendGmailEmail(params: {
   to: string;
   subject: string;
   body: string;
   account?: string;
 }): Promise<void> {
-  const response = await callFunction('emails/send', 'POST', params);
-  if (!response.ok) {
-    throw new Error('Failed to send email');
-  }
+  await callFunction('emails/send', 'POST', params);
 }

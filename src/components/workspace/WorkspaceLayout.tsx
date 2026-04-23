@@ -1,20 +1,21 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Menu } from 'lucide-react';
-import { Sidebar } from '@/components/layout/Sidebar';
-import { PageEditor } from '@/components/editor/PageEditor';
-import { AIAssistant } from '@/components/ai/AIAssistant';
-import { EmailInbox } from '@/components/email/EmailInbox';
-import { AccountManager } from '@/components/email/AccountManager';
-import { CalendarView } from '@/components/calendar/CalendarView';
-import { MeetingScheduler } from '@/components/meeting/MeetingScheduler';
-import { Dashboard } from '@/components/dashboard/Dashboard';
-import { KanbanBoard } from '@/components/workspace/KanbanBoard';
-import { ReplyEmailDialog } from '@/components/email/ReplyEmailDialog';
-import { dummyEmails, dummyMeetingRequests } from '@/data/emailData';
-import { useWorkspace } from '@/contexts/WorkspaceContext';
-import { Email, TimeSlot, CalendarEvent } from '@/types/email';
 import { toast } from 'sonner';
+import { AIAssistant } from '@/components/ai/AIAssistant';
+import { CalendarView } from '@/components/calendar/CalendarView';
+import { Dashboard } from '@/components/dashboard/Dashboard';
+import { AccountManager } from '@/components/email/AccountManager';
+import { EmailInbox } from '@/components/email/EmailInbox';
+import { ReplyEmailDialog } from '@/components/email/ReplyEmailDialog';
+import { PageEditor } from '@/components/editor/PageEditor';
+import { Sidebar } from '@/components/layout/Sidebar';
+import { MeetingScheduler } from '@/components/meeting/MeetingScheduler';
+import { KanbanBoard } from '@/components/workspace/KanbanBoard';
+import { useAppwriteAuth } from '@/contexts/AppwriteAuthContext';
+import { useWorkspace } from '@/contexts/WorkspaceContext';
+import { dummyEmails, dummyMeetingRequests } from '@/data/emailData';
 import { useEmails } from '@/hooks/useEmails';
+import { Email, TimeSlot, CalendarEvent } from '@/types/email';
 
 export type ViewType = 'dashboard' | 'pages' | 'inbox' | 'calendar' | 'scheduler' | 'kanban' | 'accounts';
 
@@ -25,12 +26,19 @@ export function WorkspaceLayout() {
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
   const [schedulerEmail, setSchedulerEmail] = useState<Email | null>(null);
   const [replyEmail, setReplyEmail] = useState<Email | null>(null);
-  
   const [accounts, setAccounts] = useState<string[]>([]);
   const [activeAccount, setActiveAccount] = useState<string | undefined>();
-  
+
   const { workspace, addEvent, isLoadingWorkspace, workspaceError } = useWorkspace();
-  const { emails: realEmails, isLoading: emailsLoading, error: emailsError, isBackendOffline, isGmailNotConnected, refetch: refetchEmails } = useEmails(activeAccount);
+  const { connectGoogleIdentity } = useAppwriteAuth();
+  const {
+    emails: realEmails,
+    isLoading: emailsLoading,
+    error: emailsError,
+    isBackendOffline,
+    isGmailNotConnected,
+    refetch: refetchEmails,
+  } = useEmails(activeAccount);
 
   useEffect(() => {
     if (workspaceError) {
@@ -38,7 +46,6 @@ export function WorkspaceLayout() {
     }
   }, [workspaceError]);
 
-  // Fetch accounts on mount
   useEffect(() => {
     import('@/services/emailService').then(({ emailService }) => {
       emailService.getAccounts().then(accs => {
@@ -50,36 +57,15 @@ export function WorkspaceLayout() {
     });
   }, []);
 
-  // Handle cross-window message from OAuth popup
-  useEffect(() => {
-    const handleMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'GMAIL_AUTH_SUCCESS' && event.data.email) {
-        setAccounts(prev => Array.from(new Set([...prev, event.data.email])));
-        setActiveAccount(event.data.email);
-        toast.success(`Connected account: ${event.data.email}`);
-        refetchEmails();
-      }
-    };
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, [refetchEmails]);
-
-  const handleAddAccount = async () => {
+  const handleAddAccount = () => {
     try {
-      const { emailService } = await import('@/services/emailService');
-      const url = await emailService.connectGmail();
-      // Open popup for OAuth to prevent losing React state
-      window.open(url, 'GmailAuth', 'width=600,height=700');
-    } catch (e) {
-      toast.error('Failed to initiate login');
+      connectGoogleIdentity();
+    } catch {
+      toast.error('Failed to start Google account linking');
     }
   };
-  
-  // Use real emails if available. On deployed site, show empty state if not connected.
-  const emails = realEmails.length > 0 ? realEmails : (isBackendOffline || isGmailNotConnected ? [] : dummyEmails);
-  
-  // Auto-refresh emails every 5 seconds (handled by React Query)
-  // Emails will automatically update in the inbox
+
+  const emails = realEmails.length > 0 ? realEmails : isBackendOffline || isGmailNotConnected ? [] : dummyEmails;
 
   const handleEmailAction = (email: Email, actionType: string) => {
     if (actionType === 'schedule-meeting') {
@@ -92,7 +78,7 @@ export function WorkspaceLayout() {
     }
   };
 
-  const handleScheduleMeeting = (slot: TimeSlot, message: string) => {
+  const handleScheduleMeeting = (_slot: TimeSlot, _message: string) => {
     toast.success('Meeting scheduled and reply sent!');
     setSchedulerEmail(null);
     setCurrentView('inbox');
@@ -117,7 +103,7 @@ export function WorkspaceLayout() {
             tasks={workspace.tasks}
             goals={workspace.goals}
             meetingRequests={dummyMeetingRequests}
-            onNavigate={(view) => setCurrentView(view as ViewType)}
+            onNavigate={view => setCurrentView(view as ViewType)}
           />
         );
       case 'inbox':
@@ -149,7 +135,7 @@ export function WorkspaceLayout() {
           <CalendarView
             events={workspace.events}
             onCreateEvent={handleCreateEvent}
-            onEventClick={(event) => toast.info(`Event: ${event.title}`)}
+            onEventClick={event => toast.info(`Event: ${event.title}`)}
           />
         );
       case 'kanban':
@@ -160,7 +146,10 @@ export function WorkspaceLayout() {
             meetingRequest={dummyMeetingRequests[0] || null}
             email={schedulerEmail || undefined}
             onSchedule={handleScheduleMeeting}
-            onDecline={() => { setCurrentView('inbox'); toast.info('Meeting declined'); }}
+            onDecline={() => {
+              setCurrentView('inbox');
+              toast.info('Meeting declined');
+            }}
             onClose={() => setCurrentView('inbox')}
           />
         );
@@ -192,10 +181,10 @@ export function WorkspaceLayout() {
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-background">
-      <Sidebar 
-        onOpenAI={() => setIsAIOpen(true)} 
+      <Sidebar
+        onOpenAI={() => setIsAIOpen(true)}
         currentView={currentView}
-        onChangeView={(view) => {
+        onChangeView={view => {
           setCurrentView(view);
           setIsSidebarOpen(false);
         }}
@@ -204,7 +193,7 @@ export function WorkspaceLayout() {
       />
       <main className="flex-1 overflow-hidden flex flex-col relative">
         <div className="md:hidden p-3 border-b border-border flex items-center bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-10">
-          <button 
+          <button
             onClick={() => setIsSidebarOpen(true)}
             className="p-2 -ml-2 mr-2 rounded-md hover:bg-accent"
           >
@@ -212,16 +201,14 @@ export function WorkspaceLayout() {
           </button>
           <span className="font-medium text-sm capitalize">{currentView}</span>
         </div>
-        <div className="flex-1 overflow-y-auto">
-          {renderContent()}
-        </div>
+        <div className="flex-1 overflow-y-auto">{renderContent()}</div>
       </main>
       <AIAssistant isOpen={isAIOpen} onClose={() => setIsAIOpen(false)} />
-      
-      <ReplyEmailDialog 
-        email={replyEmail} 
+
+      <ReplyEmailDialog
+        email={replyEmail}
         activeAccount={activeAccount}
-        onClose={() => setReplyEmail(null)} 
+        onClose={() => setReplyEmail(null)}
       />
     </div>
   );

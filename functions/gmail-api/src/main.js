@@ -1,44 +1,56 @@
-import { Client, Databases, ID, Query } from 'node-appwrite';
+import { Account, Client } from 'node-appwrite';
 import { google } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
 
-const GOOGLE_SCOPES = [
-  'https://www.googleapis.com/auth/gmail.readonly',
-  'https://www.googleapis.com/auth/gmail.send',
-  'https://www.googleapis.com/auth/gmail.modify',
-  'https://www.googleapis.com/auth/userinfo.email',
-  'https://www.googleapis.com/auth/userinfo.profile',
-];
+function decodeBase64(data) {
+  if (!data) return '';
+  const normalized = data.replace(/-/g, '+').replace(/_/g, '/');
+  return Buffer.from(normalized, 'base64').toString('utf-8');
+}
 
 function decodeEmailBody(payload) {
   if (!payload) return '';
+
   if (payload.body?.data) {
-    return Buffer.from(payload.body.data, 'base64').toString('utf-8');
+    return decodeBase64(payload.body.data);
   }
+
   if (payload.parts) {
     for (const part of payload.parts) {
       if (part.mimeType === 'text/plain' && part.body?.data) {
-        return Buffer.from(part.body.data, 'base64').toString('utf-8');
+        return decodeBase64(part.body.data);
       }
     }
+
     for (const part of payload.parts) {
       if (part.mimeType === 'text/html' && part.body?.data) {
-        return Buffer.from(part.body.data, 'base64').toString('utf-8');
+        return decodeBase64(part.body.data);
       }
+
       if (part.parts) {
         const nested = decodeEmailBody(part);
         if (nested) return nested;
       }
     }
   }
+
   return '';
 }
 
 function parseGmailMessage(gmailMessage) {
   const headers = gmailMessage.payload?.headers || [];
-  const getHeader = (name) => headers.find(h => h.name.toLowerCase() === name.toLowerCase())?.value || '';
-  const extractEmail = (str) => { const m = str.match(/<(.+)>/); return m ? m[1] : str.trim(); };
-  const extractName = (str) => { const m = str.match(/^(.+?)\s*</); return m ? m[1].replace(/"/g, '').trim() : ''; };
+  const getHeader = (name) =>
+    headers.find(header => header.name.toLowerCase() === name.toLowerCase())?.value || '';
+
+  const extractEmail = (value) => {
+    const match = value.match(/<(.+)>/);
+    return match ? match[1] : value.trim();
+  };
+
+  const extractName = (value) => {
+    const match = value.match(/^(.+?)\s*</);
+    return match ? match[1].replace(/"/g, '').trim() : '';
+  };
 
   const body = decodeEmailBody(gmailMessage.payload);
   const subject = getHeader('Subject') || '(No Subject)';
@@ -57,11 +69,14 @@ function parseGmailMessage(gmailMessage) {
       name: extractName(getHeader('From')) || 'Unknown',
       email: extractEmail(getHeader('From')),
     },
-    to: getHeader('To').split(',').map(extractEmail),
+    to: getHeader('To')
+      .split(',')
+      .map(extractEmail)
+      .filter(Boolean),
     subject,
     snippet,
     body,
-    receivedAt: new Date(parseInt(gmailMessage.internalDate)).toISOString(),
+    receivedAt: new Date(parseInt(gmailMessage.internalDate || '0', 10)).toISOString(),
     isRead: !gmailMessage.labelIds?.includes('UNREAD'),
     isStarred: gmailMessage.labelIds?.includes('STARRED') || false,
     labels: gmailMessage.labelIds || [],
@@ -69,224 +84,324 @@ function parseGmailMessage(gmailMessage) {
   };
 }
 
-export default async ({ req, res, log, error }) => {
-  const {
-    GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI,
-    APPWRITE_ENDPOINT, APPWRITE_PROJECT_ID, APPWRITE_API_KEY,
-    APPWRITE_DATABASE_ID, FRONTEND_URL,
-  } = process.env;
-
-  const DATABASE_ID = APPWRITE_DATABASE_ID || 'thinkdesk';
-  const TOKENS_COLLECTION = 'gmail_tokens';
-
-  const client = new Client()
-    .setEndpoint(APPWRITE_ENDPOINT || 'https://sgp.cloud.appwrite.io/v1')
-    .setProject(APPWRITE_PROJECT_ID)
-    .setKey(APPWRITE_API_KEY);
-
-  const db = new Databases(client);
-
-  // Detect routing: use req.path if available, otherwise fall back to body.action
-  // Appwrite Cloud 1.9.x may not pass req.path correctly via executions API
-  let path = req.path || '/';
-  let method = req.method || 'GET';
-  let query = req.query || {};
-  let body = {};
-  
-  try {
-    body = req.bodyJson || {};
-  } catch (e) {
-    // empty body is fine for GET requests
-  }
-
-  // If path is '/' (default), check body for action routing (compatibility mode)
-  if ((path === '/' || path === '') && body.action) {
-    path = '/' + body.action;
-    method = body.method || method;
-    query = { ...query, ...(body.query || {}) };
-    // Remove action from body to avoid confusion
-    const { action: _, method: __, query: ___, ...rest } = body;
-    body = rest;
-  }
-
-  log(`Gmail function: ${method} ${path}`);
-
-  const cors = {
-    'Access-Control-Allow-Origin': FRONTEND_URL || '*',
+function getCorsHeaders() {
+  const frontendUrl = process.env.FRONTEND_URL || '*';
+  return {
+    'Access-Control-Allow-Origin': frontendUrl,
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   };
+}
 
-  if (method === 'OPTIONS') return res.send('', 204, cors);
+function getBody(req) {
+  try {
+    return req.bodyJson || {};
+  } catch {
+    return {};
+  }
+}
 
-  const createOAuth2 = () => new OAuth2Client(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI);
+function getNormalizedHeaders(req) {
+  const headers = req.headers || {};
+  return Object.fromEntries(
+    Object.entries(headers).map(([key, value]) => [key.toLowerCase(), value])
+  );
+}
 
-  const getToken = async (email) => {
-    try {
-      const docs = await db.listDocuments(DATABASE_ID, TOKENS_COLLECTION, [Query.equal('email', email), Query.limit(1)]);
-      if (!docs.documents.length) return null;
-      const d = docs.documents[0];
-      return { access_token: d.access_token, refresh_token: d.refresh_token, expiry_date: d.expiry_date, token_type: d.token_type || 'Bearer', $id: d.$id };
-    } catch (e) { error('getToken: ' + e.message); return null; }
-  };
+function getRequestDetails(req) {
+  let path = req.path || '/';
+  let method = req.method || 'GET';
+  let query = req.query || {};
+  let body = getBody(req);
 
-  const saveToken = async (email, tokens) => {
-    const data = {
-      email,
-      access_token: tokens.access_token || '',
-      refresh_token: tokens.refresh_token || '',
-      expiry_date: tokens.expiry_date || 0,
-      token_type: tokens.token_type || 'Bearer',
-    };
-    try {
-      const existing = await db.listDocuments(DATABASE_ID, TOKENS_COLLECTION, [Query.equal('email', email), Query.limit(1)]);
-      if (existing.documents.length > 0) {
-        await db.updateDocument(DATABASE_ID, TOKENS_COLLECTION, existing.documents[0].$id, data);
-      } else {
-        await db.createDocument(DATABASE_ID, TOKENS_COLLECTION, ID.unique(), data);
-      }
-    } catch (e) { error('saveToken: ' + e.message); throw e; }
-  };
+  if ((path === '/' || path === '') && body.action) {
+    path = `/${body.action}`;
+    method = body.method || method;
+    query = { ...query, ...(body.query || {}) };
+  }
+
+  return { path, method, query, body };
+}
+
+function getAuthErrorMessage(account) {
+  if (!account) {
+    return 'Connect a Google account through Appwrite to sync Gmail.';
+  }
+
+  return `Reconnect ${account} through Appwrite Google sign-in to restore Gmail sync.`;
+}
+
+function isGoogleAuthError(err) {
+  const status = err?.code || err?.status || err?.response?.status;
+  return status === 401 || status === 403;
+}
+
+async function loadGoogleContext(req) {
+  const headers = getNormalizedHeaders(req);
+  const endpoint =
+    process.env.APPWRITE_ENDPOINT ||
+    process.env.APPWRITE_FUNCTION_API_ENDPOINT ||
+    'https://sgp.cloud.appwrite.io/v1';
+  const projectId =
+    process.env.APPWRITE_PROJECT_ID || process.env.APPWRITE_FUNCTION_PROJECT_ID || '';
+  const userJwt = headers['x-appwrite-user-jwt'];
+
+  if (!projectId || !userJwt) {
+    const error = new Error('Appwrite user session not found. Please sign in with Google first.');
+    error.statusCode = 401;
+    throw error;
+  }
+
+  const client = new Client().setEndpoint(endpoint).setProject(projectId).setJWT(userJwt);
+  const account = new Account(client);
+
+  const [user, identities, currentSession] = await Promise.all([
+    account.get(),
+    account.listIdentities(),
+    account.getSession('current').catch(() => null),
+  ]);
+
+  const googleIdentities = identities.identities.filter(
+    identity =>
+      identity.provider?.toLowerCase() === 'google' &&
+      identity.providerEmail &&
+      identity.providerAccessToken
+  );
+
+  return { account, user, currentSession, googleIdentities };
+}
+
+function selectGoogleIdentity(context, requestedEmail) {
+  const requested = requestedEmail?.toLowerCase().trim();
+
+  if (requested) {
+    return (
+      context.googleIdentities.find(
+        identity => identity.providerEmail.toLowerCase() === requested
+      ) || null
+    );
+  }
+
+  if (context.currentSession?.provider?.toLowerCase() === 'google') {
+    const byProviderUid = context.googleIdentities.find(
+      identity => identity.providerUid === context.currentSession.providerUid
+    );
+
+    if (byProviderUid) {
+      return byProviderUid;
+    }
+  }
+
+  if (context.user?.email) {
+    const byUserEmail = context.googleIdentities.find(
+      identity => identity.providerEmail.toLowerCase() === context.user.email.toLowerCase()
+    );
+
+    if (byUserEmail) {
+      return byUserEmail;
+    }
+  }
+
+  return context.googleIdentities[0] || null;
+}
+
+async function refreshCurrentGoogleIdentity(context, targetIdentity) {
+  if (!context.currentSession || context.currentSession.provider?.toLowerCase() !== 'google') {
+    return null;
+  }
+
+  if (
+    targetIdentity &&
+    targetIdentity.providerUid !== context.currentSession.providerUid &&
+    targetIdentity.providerEmail.toLowerCase() !== (context.user?.email || '').toLowerCase()
+  ) {
+    return null;
+  }
+
+  await context.account.updateSession('current');
+  const refreshed = await context.account.listIdentities();
+  return refreshed.identities.filter(
+    identity =>
+      identity.provider?.toLowerCase() === 'google' &&
+      identity.providerEmail &&
+      identity.providerAccessToken
+  );
+}
+
+async function createGmailClient(context, requestedEmail) {
+  let identity = selectGoogleIdentity(context, requestedEmail);
+
+  if (!identity) {
+    const error = new Error('Connect a Google account through Appwrite to sync Gmail.');
+    error.statusCode = 401;
+    throw error;
+  }
+
+  const oauth2 = new OAuth2Client();
+  oauth2.setCredentials({
+    access_token: identity.providerAccessToken,
+  });
+
+  let gmail = google.gmail({ version: 'v1', auth: oauth2 });
 
   try {
-    // GET /auth/google — Start OAuth
-    if (path.startsWith('/auth/google') && !path.includes('/callback')) {
-      if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
-        return res.json({ error: 'Google OAuth not configured' }, 500, cors);
-      }
-      const oauth2 = createOAuth2();
-      const authUrl = oauth2.generateAuthUrl({
-        access_type: 'offline',
-        scope: GOOGLE_SCOPES,
-        prompt: 'consent',
-        state: encodeURIComponent(query.redirect || FRONTEND_URL || ''),
-      });
-      // Return the auth URL as JSON so the frontend can open it
-      return res.json({ authUrl, type: 'oauth_redirect' }, 200, cors);
+    await gmail.users.getProfile({ userId: 'me' });
+    return { gmail, identity };
+  } catch (err) {
+    if (!isGoogleAuthError(err)) {
+      throw err;
     }
 
-    // GET /auth/google/callback — Handle OAuth Callback
-    if (path.includes('/auth/google/callback')) {
-      const code = query.code;
-      if (!code) return res.json({ error: 'missing code' }, 400, cors);
-
-      const oauth2 = createOAuth2();
-      const { tokens } = await oauth2.getToken(code);
-      oauth2.setCredentials(tokens);
-
-      const oauth2info = google.oauth2({ auth: oauth2, version: 'v2' });
-      const userInfo = await oauth2info.userinfo.get();
-      const emailAddress = userInfo.data.email;
-
-      if (!emailAddress) return res.json({ error: 'no email' }, 400, cors);
-
-      await saveToken(emailAddress, tokens);
-      log(`Tokens saved for ${emailAddress}`);
-
-      const redirectBack = query.state ? decodeURIComponent(query.state) : (FRONTEND_URL || '');
-
-      return res.send(`
-        <html><body>
-          <h1>✅ Gmail Connected!</h1>
-          <p>Connected: <strong>${emailAddress}</strong></p>
-          <script>
-            if (window.opener) {
-              window.opener.postMessage({ type: 'GMAIL_AUTH_SUCCESS', email: '${emailAddress}' }, '*');
-              setTimeout(() => window.close(), 1000);
-            } else if ('${redirectBack}') {
-              window.location.href = '${redirectBack}';
-            }
-          </script>
-        </body></html>
-      `, 200, { 'Content-Type': 'text/html' });
+    const refreshedIdentities = await refreshCurrentGoogleIdentity(context, identity);
+    if (!refreshedIdentities) {
+      const error = new Error(getAuthErrorMessage(identity.providerEmail));
+      error.statusCode = 401;
+      throw error;
     }
 
-    // GET /auth/accounts — List connected accounts
+    const refreshedContext = {
+      ...context,
+      googleIdentities: refreshedIdentities,
+    };
+    identity = selectGoogleIdentity(refreshedContext, requestedEmail);
+
+    if (!identity) {
+      const error = new Error('Connect a Google account through Appwrite to sync Gmail.');
+      error.statusCode = 401;
+      throw error;
+    }
+
+    oauth2.setCredentials({
+      access_token: identity.providerAccessToken,
+    });
+    gmail = google.gmail({ version: 'v1', auth: oauth2 });
+    await gmail.users.getProfile({ userId: 'me' });
+    return { gmail, identity };
+  }
+}
+
+export default async ({ req, res, log, error }) => {
+  const cors = getCorsHeaders();
+  const { path, method, query, body } = getRequestDetails(req);
+
+  log(`Gmail function: ${method} ${path}`);
+
+  if (method === 'OPTIONS') {
+    return res.send('', 204, cors);
+  }
+
+  try {
+    if (path === '/' || path === '') {
+      return res.json(
+        {
+          status: 'ok',
+          message: 'Gmail API Function is running.',
+          version: '3.0',
+        },
+        200,
+        cors
+      );
+    }
+
+    if (path.startsWith('/auth/google')) {
+      return res.json(
+        {
+          error: 'Legacy endpoint removed',
+          message:
+            'Use Appwrite Google sign-in from the frontend. Gmail sync now uses Appwrite identities automatically.',
+        },
+        410,
+        cors
+      );
+    }
+
     if (path.includes('/auth/accounts')) {
-      const docs = await db.listDocuments(DATABASE_ID, TOKENS_COLLECTION, [Query.limit(100)]);
-      return res.json({ accounts: docs.documents.map(d => d.email) }, 200, cors);
+      const context = await loadGoogleContext(req);
+      const accounts = Array.from(
+        new Set(context.googleIdentities.map(identity => identity.providerEmail))
+      ).sort((left, right) => left.localeCompare(right));
+
+      return res.json({ accounts }, 200, cors);
     }
 
-    // GET /emails — Fetch emails
     if (path === '/emails' || path.endsWith('/emails')) {
-      const limit = parseInt(query.limit || body.limit || '20');
-      const account = query.account || body.account;
+      const limit = parseInt(query.limit || body.limit || '20', 10);
+      const requestedAccount = query.account || body.account;
+      const context = await loadGoogleContext(req);
+      const { gmail } = await createGmailClient(context, requestedAccount);
 
-      let tokenEmail = account;
-      if (!tokenEmail) {
-        const docs = await db.listDocuments(DATABASE_ID, TOKENS_COLLECTION, [Query.limit(1)]);
-        if (!docs.documents.length) {
-          return res.json({ error: 'Not authenticated', message: 'Connect a Gmail account first', authUrl: '/auth/google' }, 401, cors);
-        }
-        tokenEmail = docs.documents[0].email;
-      }
+      const listResp = await gmail.users.messages.list({
+        userId: 'me',
+        maxResults: Number.isNaN(limit) ? 20 : limit,
+        q: 'in:inbox',
+      });
 
-      const tokenData = await getToken(tokenEmail);
-      if (!tokenData) return res.json({ error: 'No token', message: `No token for ${tokenEmail}` }, 401, cors);
-
-      const oauth2 = createOAuth2();
-      oauth2.setCredentials(tokenData);
-
-      if (tokenData.expiry_date && tokenData.expiry_date < Date.now()) {
-        const { credentials } = await oauth2.refreshAccessToken();
-        await saveToken(tokenEmail, { ...tokenData, ...credentials });
-        oauth2.setCredentials(credentials);
-      }
-
-      const gmail = google.gmail({ version: 'v1', auth: oauth2 });
-      const listResp = await gmail.users.messages.list({ userId: 'me', maxResults: limit, q: 'in:inbox' });
       const messages = listResp.data.messages || [];
-
       const emails = await Promise.all(
-        messages.map(async (msg) => {
-          const full = await gmail.users.messages.get({ userId: 'me', id: msg.id, format: 'full' });
+        messages.map(async message => {
+          const full = await gmail.users.messages.get({
+            userId: 'me',
+            id: message.id,
+            format: 'full',
+          });
           return parseGmailMessage(full.data);
         })
       );
 
-      emails.sort((a, b) => new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime());
+      emails.sort(
+        (left, right) =>
+          new Date(right.receivedAt).getTime() - new Date(left.receivedAt).getTime()
+      );
+
       return res.json(emails, 200, cors);
     }
 
-    // POST /emails/send — Send email
     if (path.includes('/emails/send')) {
-      const { to, subject, body: emailBody, account } = { ...body, ...query };
-      if (!to || !subject || !emailBody) return res.json({ error: 'Missing: to, subject, body' }, 400, cors);
+      const { to, subject, body: emailBody, account: requestedAccount } = {
+        ...body,
+        ...query,
+      };
 
-      let tokenEmail = account;
-      if (!tokenEmail) {
-        const docs = await db.listDocuments(DATABASE_ID, TOKENS_COLLECTION, [Query.limit(1)]);
-        if (!docs.documents.length) return res.json({ error: 'Not authenticated' }, 401, cors);
-        tokenEmail = docs.documents[0].email;
+      if (!to || !subject || !emailBody) {
+        return res.json({ error: 'Missing: to, subject, body' }, 400, cors);
       }
 
-      const tokenData = await getToken(tokenEmail);
-      if (!tokenData) return res.json({ error: 'No token' }, 401, cors);
+      const context = await loadGoogleContext(req);
+      const { gmail } = await createGmailClient(context, requestedAccount);
 
-      const oauth2 = createOAuth2();
-      oauth2.setCredentials(tokenData);
-      const gmail = google.gmail({ version: 'v1', auth: oauth2 });
+      const rawMessage = Buffer.from(
+        [
+          `To: ${to}`,
+          `Subject: ${subject}`,
+          'Content-Type: text/plain; charset=utf-8',
+          '',
+          emailBody,
+        ].join('\n')
+      )
+        .toString('base64')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
 
-      const rawMessage = Buffer.from([`To: ${to}`, `Subject: ${subject}`, 'Content-Type: text/plain; charset=utf-8', '', emailBody].join('\n'))
-        .toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      await gmail.users.messages.send({
+        userId: 'me',
+        requestBody: { raw: rawMessage },
+      });
 
-      await gmail.users.messages.send({ userId: 'me', requestBody: { raw: rawMessage } });
       return res.json({ success: true }, 200, cors);
     }
 
-    // Health check / accounts at root with action param
-    if (path === '/') {
-      return res.json({ 
-        status: 'ok', 
-        message: 'Gmail API Function is running. Pass action in body: auth/accounts, emails, emails/send, auth/google',
-        version: '2.0'
-      }, 200, cors);
+    return res.json({ error: 'Not found', path }, 404, cors);
+  } catch (err) {
+    const statusCode = err?.statusCode || err?.code || err?.status || err?.response?.status;
+    const message = err instanceof Error ? err.message : 'Internal server error';
+
+    if (statusCode && statusCode >= 400 && statusCode < 500) {
+      error(`Function auth error: ${message}`);
+      return res.json({ error: 'Request failed', message }, statusCode, cors);
     }
 
-    return res.json({ error: 'Not found', path }, 404, cors);
-
-  } catch (e) {
-    error('Function error: ' + e.message);
-    return res.json({ error: 'Internal server error', message: e.message }, 500, cors);
+    error(`Function error: ${message}`);
+    return res.json({ error: 'Internal server error', message }, 500, cors);
   }
 };

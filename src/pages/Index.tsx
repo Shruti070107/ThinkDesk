@@ -1,11 +1,24 @@
 import { WorkspaceLayout } from '@/components/workspace/WorkspaceLayout';
 import { AuthPage } from '@/components/auth/AuthPage';
-import { AppwriteAuthProvider, useAppwriteAuth } from '@/contexts/AppwriteAuthContext';
+import { useAppwriteAuth } from '@/contexts/AppwriteAuthContext';
 import { WorkspaceProvider } from '@/contexts/WorkspaceContext';
-import { ThemeProvider } from '@/contexts/ThemeContext';
+import { useLocation } from 'react-router-dom';
+import AuthCallback from './AuthCallback';
 
-function AppwriteGate() {
+export default function Index() {
+  const location = useLocation();
   const { user, isLoading, isConfigured, login, signup, loginWithGoogle } = useAppwriteAuth();
+  const searchParams = new URLSearchParams(location.search);
+  const isGoogleCallback =
+    searchParams.get('auth_callback') === 'google' ||
+    searchParams.has('userId') ||
+    searchParams.has('secret') ||
+    searchParams.has('intent') ||
+    searchParams.has('error');
+
+  if (isGoogleCallback) {
+    return <AuthCallback />;
+  }
 
   if (isLoading) {
     return (
@@ -25,15 +38,3 @@ function AppwriteGate() {
     </WorkspaceProvider>
   );
 }
-
-const Index = () => {
-  return (
-    <ThemeProvider>
-      <AppwriteAuthProvider>
-        <AppwriteGate />
-      </AppwriteAuthProvider>
-    </ThemeProvider>
-  );
-};
-
-export default Index;

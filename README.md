@@ -1,87 +1,54 @@
-🧠 ThinkDesk AI
+# ThinkDesk AI
 
-An Autonomous Productivity Agent for the Modern Professional
+ThinkDesk AI is a productivity workspace for email triage, scheduling, tasks, and follow-ups.
 
-The industry doesn’t have a productivity problem. It has a coordination and cognitive overload crisis.
+## Current Architecture
 
-ThinkDesk AI is a smart, autonomous productivity assistant designed to reduce mental overhead, not just automate tasks. Instead of juggling emails, calendars, tasks, and follow-ups manually, ThinkDesk AI understands intent and acts on your behalf.
+- Frontend: React, Vite, TypeScript, Tailwind, shadcn/ui
+- Auth and persistence: Appwrite Account, TablesDB, and Sites
+- Gmail sync: Appwrite Google OAuth plus the `gmail-api` Appwrite Function
+- Legacy local backend: kept in `backend/` only as a reference for older experiments
 
-🚀 What ThinkDesk AI Does
+## Gmail Sync
 
-ThinkDesk AI works as an intelligent layer on top of your daily workflow.
+ThinkDesk now syncs Gmail through Appwrite instead of the old localhost OAuth server.
 
-Core Capabilities
+1. The user signs in with Google through Appwrite Auth.
+2. ThinkDesk finishes the Appwrite session after the OAuth redirect, including mobile browsers.
+3. The `gmail-api` function uses the signed-in user's Appwrite Google identity to read or send Gmail.
+4. Connected Gmail identities appear automatically in the inbox account switcher.
 
-📧 Email Intelligence
+No `gmail_tokens` table or local Google client secret flow is required for the Appwrite path.
 
-Reads incoming emails
+## Environment
 
-Detects intent: reply / meeting / task / follow-up
+Client-side Vite config:
 
-Drafts context-aware responses
+```bash
+VITE_GOOGLE_AI_API_KEY=your-google-ai-api-key
+VITE_APPWRITE_ENDPOINT=https://sgp.cloud.appwrite.io/v1
+VITE_APPWRITE_PROJECT_ID=your-appwrite-project-id
+VITE_APPWRITE_DATABASE_ID=thinkdesk
+VITE_APPWRITE_WORKSPACES_TABLE_ID=workspaces
+```
 
-🗓 Smart Scheduling
+Server-side Appwrite config used for provisioning or deployments:
 
-Suggests optimal meeting slots
+```bash
+APPWRITE_ENDPOINT=https://sgp.cloud.appwrite.io/v1
+APPWRITE_PROJECT_ID=your-appwrite-project-id
+APPWRITE_API_KEY=your-appwrite-api-key
+APPWRITE_DATABASE_ID=thinkdesk
+APPWRITE_WORKSPACES_TABLE_ID=workspaces
+FRONTEND_URL=https://your-thinkdesk-site.appwrite.network
+```
 
-Resolves calendar conflicts
+## Local Development
 
-Reduces back-and-forth coordination
+```bash
+npm install
+npm run build
+npm run dev
+```
 
-✅ Task Automation
-
-Converts conversations into actionable tasks
-
-Tracks follow-ups automatically
-
-Prioritizes based on urgency and context
-
-📊 Productivity Insights
-
-Generates weekly productivity summaries
-
-Highlights time drains and focus gaps
-
-Suggests workflow improvements
-
-🧩 Why ThinkDesk AI?
-
-Modern professionals lose 30–45% of working hours on:
-
-Deciding what to do next
-
-Switching between tools (email → calendar → docs → Slack)
-
-Rewriting similar messages
-
-Remembering follow-ups
-
-Scheduling across multiple people
-
-None of this creates real value.
-
-ThinkDesk AI focuses on thinking for you, not just reminding you.
-
-🛠 Tech Stack Frontend
-
-React (Vite)
-
-TypeScript
-
-shadcn/ui
-
-Tailwind CSS
-
-Backend
-
-FastAPI / Node.js (prototype)
-
-REST APIs
-
-AI Layer
-
-LLM-based intent detection
-
-Prompt-driven task reasoning
-
-Rule + AI hybrid decision flow
+When Appwrite is configured, the app uses Appwrite for auth, workspace sync, and Gmail sync in both local and deployed environments.

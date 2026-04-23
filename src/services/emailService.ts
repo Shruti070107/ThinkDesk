@@ -1,31 +1,60 @@
 /**
  * Email Service
- * Handles email API calls and data transformation
- * Uses Appwrite Function in production, local backend in development.
+ * Uses the Appwrite Gmail Function whenever Appwrite is configured and only
+ * falls back to the legacy local backend for older local setups.
  */
 
+import { appwriteConfig } from '@/lib/appwrite';
+import { fetchGmailEmails, getGmailAccounts, sendGmailEmail } from '@/lib/gmailFunction';
 import { Email, EmailCategory } from '@/types/email';
-import { getGmailAccounts, getGmailAuthUrl } from '@/lib/gmailFunction';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-
-const isDeployedEnv = !window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1');
+const LEGACY_API_BASE_URL = import.meta.env.VITE_API_URL?.trim() || 'http://localhost:8000';
+const USE_APPWRITE_GMAIL = appwriteConfig.isConfigured;
 
 export interface EmailServiceConfig {
   apiUrl?: string;
   pollingInterval?: number;
 }
 
+type NormalizedEmailInput = {
+  id?: string;
+  threadId?: string;
+  from?: { name?: string; email?: string };
+  from_name?: string;
+  from_email?: string;
+  to?: string[] | string;
+  subject?: string;
+  snippet?: string;
+  body?: string;
+  receivedAt?: string | Date;
+  received_at?: string | Date;
+  isRead?: boolean;
+  is_read?: boolean;
+  isStarred?: boolean;
+  is_starred?: boolean;
+  labels?: string[];
+  category?: EmailCategory;
+  extractedData?: Email['extractedData'];
+  extracted_data?: Email['extractedData'];
+  suggestedActions?: Email['suggestedActions'];
+  suggested_actions?: Email['suggestedActions'];
+};
+
 class EmailService {
   private apiUrl: string;
   private pollingInterval: number;
 
   constructor(config: EmailServiceConfig = {}) {
-    this.apiUrl = config.apiUrl || API_BASE_URL;
+    this.apiUrl = config.apiUrl || LEGACY_API_BASE_URL;
     this.pollingInterval = config.pollingInterval || 5000;
   }
 
   async fetchEmails(account?: string): Promise<Email[]> {
+    if (USE_APPWRITE_GMAIL) {
+      const data = await fetchGmailEmails(account, 20);
+      return this.normalizeEmails(Array.isArray(data) ? (data as NormalizedEmailInput[]) : []);
+    }
+
     try {
       const url = new URL(`${this.apiUrl}/api/emails`);
       if (account) url.searchParams.append('account', account);
@@ -35,22 +64,22 @@ class EmailService {
       });
       if (!response.ok) throw new Error(`Failed to fetch emails: ${response.statusText}`);
       const data = await response.json();
-      return this.normalizeEmails(data);
+      return this.normalizeEmails(data as NormalizedEmailInput[]);
     } catch (error) {
       console.error('Error fetching emails:', error);
       throw error;
     }
   }
 
-  private normalizeEmails(data: any[]): Email[] {
-    return data.map((email: any) => ({
-      id: email.id,
-      threadId: email.threadId || email.id,
+  private normalizeEmails(data: NormalizedEmailInput[]): Email[] {
+    return data.map(email => ({
+      id: email.id || '',
+      threadId: email.threadId || email.id || '',
       from: {
         name: email.from?.name || email.from_name || 'Unknown',
         email: email.from?.email || email.from_email || '',
       },
-      to: Array.isArray(email.to) ? email.to : [email.to || ''],
+      to: Array.isArray(email.to) ? email.to : email.to ? [email.to] : [],
       subject: email.subject || '(No Subject)',
       snippet: email.snippet || email.body?.substring(0, 100) || '',
       body: email.body || '',
@@ -65,6 +94,10 @@ class EmailService {
   }
 
   async markAsRead(emailId: string): Promise<void> {
+    if (USE_APPWRITE_GMAIL) {
+      return;
+    }
+
     const response = await fetch(`${this.apiUrl}/api/emails/${emailId}/read`, {
       method: 'POST',
       credentials: 'include',
@@ -73,6 +106,10 @@ class EmailService {
   }
 
   async toggleStar(emailId: string): Promise<void> {
+    if (USE_APPWRITE_GMAIL) {
+      return;
+    }
+
     const response = await fetch(`${this.apiUrl}/api/emails/${emailId}/star`, {
       method: 'POST',
       credentials: 'include',
@@ -81,6 +118,11 @@ class EmailService {
   }
 
   async sendEmail(to: string, subject: string, body: string, account?: string): Promise<void> {
+    if (USE_APPWRITE_GMAIL) {
+      await sendGmailEmail({ to, subject, body, account });
+      return;
+    }
+
     const response = await fetch(`${this.apiUrl}/api/emails/send`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -94,56 +136,53 @@ class EmailService {
   }
 
   async getEmail(emailId: string): Promise<Email> {
+    if (USE_APPWRITE_GMAIL) {
+      const emails = await this.fetchEmails();
+      const email = emails.find(item => item.id === emailId);
+      if (!email) {
+        throw new Error('Email not found');
+      }
+      return email;
+    }
+
     const response = await fetch(`${this.apiUrl}/api/emails/${emailId}`, {
       credentials: 'include',
     });
     if (!response.ok) throw new Error('Failed to fetch email');
     const data = await response.json();
-    return this.normalizeEmails([data])[0];
+    return this.normalizeEmails([data as NormalizedEmailInput])[0];
   }
 
   async searchEmails(query: string): Promise<Email[]> {
+    if (USE_APPWRITE_GMAIL) {
+      const emails = await this.fetchEmails();
+      const normalizedQuery = query.toLowerCase();
+      return emails.filter(email =>
+        [email.subject, email.snippet, email.body, email.from.name, email.from.email]
+          .join(' ')
+          .toLowerCase()
+          .includes(normalizedQuery)
+      );
+    }
+
     const response = await fetch(
       `${this.apiUrl}/api/emails/search?q=${encodeURIComponent(query)}`,
       { credentials: 'include' }
     );
     if (!response.ok) throw new Error('Failed to search emails');
     const data = await response.json();
-    return this.normalizeEmails(data);
+    return this.normalizeEmails(data as NormalizedEmailInput[]);
   }
 
-  /**
-   * Connect Gmail account (OAuth)
-   * In production: uses the Appwrite function to get the auth URL.
-   * In dev: uses local backend.
-   */
-  async connectGmail(): Promise<string> {
-    if (isDeployedEnv) {
-      return await getGmailAuthUrl(window.location.origin);
-    }
-
-    // Dev: use local backend
-    const response = await fetch(`${this.apiUrl}/api/auth/google`, {
-      credentials: 'include',
-    });
-    if (!response.ok) throw new Error('Failed to initiate Gmail connection');
-    const data = await response.json();
-    return data.auth_url;
-  }
-
-  /**
-   * Get authenticated accounts
-   * In production: queries the Appwrite function.
-   * In dev: queries local backend.
-   */
   async getAccounts(): Promise<string[]> {
-    if (isDeployedEnv) {
+    if (USE_APPWRITE_GMAIL) {
       try {
         return await getGmailAccounts();
       } catch {
         return [];
       }
     }
+
     try {
       const response = await fetch(`${this.apiUrl}/api/auth/accounts`, {
         credentials: 'include',
@@ -157,8 +196,6 @@ class EmailService {
   }
 }
 
-// Export singleton instance
 export const emailService = new EmailService();
 
-// Export class for custom instances
 export default EmailService;

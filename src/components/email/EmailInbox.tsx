@@ -311,7 +311,7 @@ export function EmailInbox({
           
           {/* Refresh Status */}
           <div className="flex items-center justify-between text-xs text-muted-foreground mb-2">
-            <span>Auto-refresh: Every 5s</span>
+            <span>Auto-refresh enabled</span>
             {onRefresh && (
               <Button
                 variant="ghost"
@@ -352,8 +352,8 @@ export function EmailInbox({
             <Alert className="mb-2 border-amber-500/30 bg-amber-500/10">
               <ServerOff className="h-4 w-4 text-amber-500" />
               <AlertDescription className="text-xs text-amber-700 dark:text-amber-400">
-                <strong>Gmail sync unavailable.</strong> The email backend server only runs locally. 
-                Run <code className="bg-muted px-1 rounded">npm run backend</code> on your machine to sync Gmail.
+                <strong>Gmail sync unavailable.</strong> The inbox sync service could not be reached.
+                Refresh the page or check the Appwrite Gmail function deployment.
               </AlertDescription>
             </Alert>
           )}
@@ -424,7 +424,7 @@ export function EmailInbox({
                 <Mail className="h-8 w-8 text-white" />
               </div>
               <p className="text-base font-semibold mb-1">Connect Gmail to Sync Emails</p>
-              <p className="text-sm text-muted-foreground mb-4">Your Gmail inbox will be synced automatically via the cloud backend.</p>
+              <p className="text-sm text-muted-foreground mb-4">Your Gmail inbox will sync automatically through Appwrite after Google consent completes.</p>
               {onAddAccount && (
                 <button
                   onClick={onAddAccount}
@@ -438,11 +438,7 @@ export function EmailInbox({
             <div className="flex flex-col items-center justify-center h-full px-6 py-10 text-center text-muted-foreground">
               <ServerOff className="h-12 w-12 mb-4 opacity-40" />
               <p className="text-sm font-medium mb-1">Gmail Sync Not Available</p>
-              <p className="text-xs text-muted-foreground mb-4">The email backend only runs on your local machine.</p>
-              <div className="text-left bg-muted rounded-lg p-3 text-xs font-mono w-full">
-                <p className="text-muted-foreground mb-1"># In your project folder:</p>
-                <p>npm run backend</p>
-              </div>
+              <p className="text-xs text-muted-foreground mb-4">ThinkDesk could not reach the configured Gmail sync service.</p>
             </div>
           ) : filteredEmails.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">

@@ -14,10 +14,7 @@
       "logging": true,
       "entrypoint": "src/main.js",
       "commands": "npm install",
-      "scopes": [
-        "databases.read",
-        "databases.write"
-      ],
+      "scopes": [],
       "ignore": ["node_modules", ".npm"],
       "path": "functions/gmail-api"
     }

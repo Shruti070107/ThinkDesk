@@ -10,6 +10,18 @@ import React, {
 import { Models } from 'appwrite';
 import { appwriteAccount, appwriteConfig, ID, OAuthProvider } from '@/lib/appwrite';
 
+const AUTH_CALLBACK_MARKER = 'google';
+const GOOGLE_OAUTH_SCOPES = [
+  'openid',
+  'email',
+  'profile',
+  'https://www.googleapis.com/auth/gmail.readonly',
+  'https://www.googleapis.com/auth/gmail.send',
+  'https://www.googleapis.com/auth/gmail.modify',
+];
+
+type GoogleOAuthIntent = 'login' | 'link';
+
 interface AppwriteAuthContextType {
   user: Models.User<Models.Preferences> | null;
   isLoading: boolean;
@@ -17,6 +29,7 @@ interface AppwriteAuthContextType {
   login: (email: string, password: string) => Promise<void>;
   signup: (email: string, password: string, name: string) => Promise<void>;
   loginWithGoogle: () => void;
+  connectGoogleIdentity: () => void;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -25,6 +38,14 @@ const AppwriteAuthContext = createContext<AppwriteAuthContextType | undefined>(u
 
 function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : 'Something went wrong';
+}
+
+function getGoogleAuthCallbackUrl(intent: GoogleOAuthIntent, result: 'success' | 'failure') {
+  const url = new URL('/', window.location.origin);
+  url.searchParams.set('auth_callback', AUTH_CALLBACK_MARKER);
+  url.searchParams.set('intent', intent);
+  url.searchParams.set('result', result);
+  return url.toString();
 }
 
 export function AppwriteAuthProvider({ children }: { children: ReactNode }) {
@@ -75,18 +96,26 @@ export function AppwriteAuthProvider({ children }: { children: ReactNode }) {
     await login(email, password);
   }, [login]);
 
-  const loginWithGoogle = useCallback(() => {
+  const beginGoogleOAuth = useCallback((intent: GoogleOAuthIntent) => {
     if (!appwriteConfig.isConfigured) {
       throw new Error('Appwrite is not configured. Add VITE_APPWRITE_PROJECT_ID to your .env file.');
     }
 
-    const redirectUrl = window.location.origin;
-    appwriteAccount.createOAuth2Session({
+    appwriteAccount.createOAuth2Token({
       provider: OAuthProvider.Google,
-      success: redirectUrl,
-      failure: redirectUrl,
+      success: getGoogleAuthCallbackUrl(intent, 'success'),
+      failure: getGoogleAuthCallbackUrl(intent, 'failure'),
+      scopes: GOOGLE_OAUTH_SCOPES,
     });
   }, []);
+
+  const loginWithGoogle = useCallback(() => {
+    beginGoogleOAuth('login');
+  }, [beginGoogleOAuth]);
+
+  const connectGoogleIdentity = useCallback(() => {
+    beginGoogleOAuth('link');
+  }, [beginGoogleOAuth]);
 
   const logout = useCallback(async () => {
     if (!appwriteConfig.isConfigured) {
@@ -114,10 +143,11 @@ export function AppwriteAuthProvider({ children }: { children: ReactNode }) {
       login,
       signup,
       loginWithGoogle,
+      connectGoogleIdentity,
       logout,
       refreshUser,
     }),
-    [user, isLoading, login, signup, loginWithGoogle, logout, refreshUser]
+    [user, isLoading, login, signup, loginWithGoogle, connectGoogleIdentity, logout, refreshUser]
   );
 
   return <AppwriteAuthContext.Provider value={value}>{children}</AppwriteAuthContext.Provider>;

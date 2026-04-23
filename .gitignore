@@ -33,3 +33,4 @@ gmail-api-deploy.zip
 *.njsproj
 *.sln
 *.sw?
+.playwright-cli/
