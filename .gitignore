@@ -13,6 +13,11 @@ dist-ssr
 *.local
 tokens.json
 
+# Deployment archives
+gmail-api-deploy.tar.gz
+gmail-api-deploy.zip
+*.tar.gz
+
 # Environment variables
 .env
 .env.local

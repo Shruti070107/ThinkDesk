@@ -1,0 +1,25 @@
+{
+  "projectId": "69cee1350014aabd8f51",
+  "projectName": "ThinkDesk",
+  "functions": [
+    {
+      "$id": "gmail-api",
+      "name": "Gmail API",
+      "runtime": "node-18.0",
+      "execute": ["any"],
+      "events": [],
+      "schedule": "",
+      "timeout": 30,
+      "enabled": true,
+      "logging": true,
+      "entrypoint": "src/main.js",
+      "commands": "npm install",
+      "scopes": [
+        "databases.read",
+        "databases.write"
+      ],
+      "ignore": ["node_modules", ".npm"],
+      "path": "functions/gmail-api"
+    }
+  ]
+}

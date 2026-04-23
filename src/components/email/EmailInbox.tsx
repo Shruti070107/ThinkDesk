@@ -17,6 +17,7 @@ interface EmailInboxProps {
   isLoading?: boolean;
   error?: Error | null;
   isBackendOffline?: boolean;
+  isGmailNotConnected?: boolean;
   onRefresh?: () => void | Promise<void>;
   
   accounts?: string[];
@@ -239,6 +240,7 @@ export function EmailInbox({
   isLoading = false, 
   error, 
   isBackendOffline = false,
+  isGmailNotConnected = false,
   onRefresh,
   accounts = [],
   activeAccount,
@@ -355,6 +357,14 @@ export function EmailInbox({
               </AlertDescription>
             </Alert>
           )}
+          {isGmailNotConnected && !isBackendOffline && (
+            <Alert className="mb-2 border-blue-500/30 bg-blue-500/10">
+              <Mail className="h-4 w-4 text-blue-500" />
+              <AlertDescription className="text-xs text-blue-700 dark:text-blue-400">
+                <strong>Gmail not connected.</strong> Connect your Gmail account to sync emails automatically.
+              </AlertDescription>
+            </Alert>
+          )}
           {error && (
             <Alert variant="destructive" className="mb-2">
               <AlertCircle className="h-4 w-4" />
@@ -407,6 +417,22 @@ export function EmailInbox({
             <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
               <Loader2 className="h-8 w-8 mb-2 animate-spin" />
               <span className="text-sm">Loading emails from Gmail...</span>
+            </div>
+          ) : isGmailNotConnected && emails.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full px-6 py-10 text-center">
+              <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-500 to-violet-500 flex items-center justify-center mb-4">
+                <Mail className="h-8 w-8 text-white" />
+              </div>
+              <p className="text-base font-semibold mb-1">Connect Gmail to Sync Emails</p>
+              <p className="text-sm text-muted-foreground mb-4">Your Gmail inbox will be synced automatically via the cloud backend.</p>
+              {onAddAccount && (
+                <button
+                  onClick={onAddAccount}
+                  className="px-4 py-2 rounded-lg bg-gradient-to-r from-blue-500 to-violet-500 text-white text-sm font-medium hover:opacity-90 transition-opacity"
+                >
+                  Connect Gmail Account
+                </button>
+              )}
             </div>
           ) : isBackendOffline && emails.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full px-6 py-10 text-center text-muted-foreground">

@@ -1,0 +1,12 @@
+{
+  "name": "gmail-api",
+  "version": "1.0.0",
+  "description": "Appwrite Function for Gmail API integration",
+  "type": "module",
+  "main": "src/main.js",
+  "dependencies": {
+    "googleapis": "^128.0.0",
+    "google-auth-library": "^9.0.0",
+    "node-appwrite": "^14.0.0"
+  }
+}

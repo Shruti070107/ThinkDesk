@@ -1,11 +1,13 @@
 /**
  * React Hook for fetching and managing emails
- * Integrates with backend API and provides real-time updates
+ * Uses the Appwrite Gmail API Function in production,
+ * falls back to local backend when running on localhost.
  */
 
 import { useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Email } from '@/types/email';
+import { fetchGmailEmails, sendGmailEmail } from '@/lib/gmailFunction';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -15,9 +17,10 @@ const isDeployedEnv = !window.location.hostname.includes('localhost') && !window
 export { isDeployedEnv };
 
 /**
- * Check if the backend server is available
+ * Check if the local backend server is available (only relevant in dev)
  */
 export async function isBackendAvailable(): Promise<boolean> {
+  if (isDeployedEnv) return false; // Always use Appwrite function in production
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3000);
@@ -34,12 +37,31 @@ export async function isBackendAvailable(): Promise<boolean> {
 }
 
 /**
- * Fetch emails from backend API
+ * Fetch emails from Appwrite Function (production) or local backend (dev)
  */
 async function fetchEmails(activeAccount?: string): Promise<Email[]> {
+  // In production (deployed), always use the Appwrite function
+  if (isDeployedEnv) {
+    try {
+      const data = await fetchGmailEmails(activeAccount, 20);
+      return (data as any[]).map((email: any) => ({
+        ...email,
+        receivedAt: new Date(email.receivedAt),
+      }));
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message === 'GMAIL_NOT_CONNECTED') {
+          throw new Error('GMAIL_NOT_CONNECTED');
+        }
+      }
+      throw error;
+    }
+  }
+
+  // In development, use local backend
   try {
     const url = new URL(`${API_BASE_URL}/api/emails`);
-    url.searchParams.append('limit', '10');
+    url.searchParams.append('limit', '20');
     if (activeAccount) {
       url.searchParams.append('account', activeAccount);
     }
@@ -115,9 +137,13 @@ async function toggleEmailStar(emailId: string): Promise<void> {
 }
 
 /**
- * Send email
+ * Send email (via Appwrite function in prod, local backend in dev)
  */
 async function sendEmail(params: { to: string; subject: string; body: string; account?: string }): Promise<void> {
+  if (isDeployedEnv) {
+    await sendGmailEmail(params);
+    return;
+  }
   const response = await fetch(`${API_BASE_URL}/api/emails/send`, {
     method: 'POST',
     headers: {
@@ -126,7 +152,6 @@ async function sendEmail(params: { to: string; subject: string; body: string; ac
     credentials: 'include',
     body: JSON.stringify(params),
   });
-  
   if (!response.ok) {
     throw new Error('Failed to send email');
   }
@@ -148,14 +173,14 @@ export function useEmails(activeAccount?: string) {
     queryKey: ['emails', activeAccount],
     queryFn: () => fetchEmails(activeAccount),
     refetchInterval: (query) => {
-      // Don't keep polling if backend is offline
-      if (query.state.error instanceof Error && query.state.error.message === 'BACKEND_OFFLINE') return false;
-      return 5000;
+      const msg = query.state.error instanceof Error ? query.state.error.message : '';
+      if (msg === 'BACKEND_OFFLINE' || msg === 'GMAIL_NOT_CONNECTED') return false;
+      return isDeployedEnv ? 30000 : 5000; // Poll every 30s in production
     },
-    staleTime: 3000,
+    staleTime: isDeployedEnv ? 20000 : 3000,
     retry: (failureCount, error) => {
-      // Don't retry if backend is simply offline
-      if (error instanceof Error && error.message === 'BACKEND_OFFLINE') return false;
+      const msg = error instanceof Error ? error.message : '';
+      if (msg === 'BACKEND_OFFLINE' || msg === 'GMAIL_NOT_CONNECTED') return false;
       return failureCount < 2;
     },
   });
@@ -186,12 +211,14 @@ export function useEmails(activeAccount?: string) {
   });
   
   const isBackendOffline = error instanceof Error && error.message === 'BACKEND_OFFLINE';
+  const isGmailNotConnected = error instanceof Error && error.message === 'GMAIL_NOT_CONNECTED';
 
   return {
     emails,
     isLoading,
-    error: isBackendOffline ? null : error,  // Don't propagate offline error as a UI error
+    error: (isBackendOffline || isGmailNotConnected) ? null : error,
     isBackendOffline,
+    isGmailNotConnected,
     refetch,
     markAsRead: markAsReadMutation.mutate,
     toggleStar: toggleStarMutation.mutate,
