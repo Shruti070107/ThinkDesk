@@ -82,6 +82,22 @@ Google login now requests Gmail scopes so the inbox is connected immediately aft
 
 Because Gmail scopes are sensitive, Google can still show a warning screen until the OAuth app is fully approved in Google Cloud. During testing, add the Gmail accounts you use to the Google OAuth consent screen test-user list and make sure the consent screen declares the exact Gmail scopes requested by ThinkDesk.
 
+The public pages Google expects are now live at:
+
+- `https://aithinkdesk.appwrite.network/`
+- `https://aithinkdesk.appwrite.network/privacy`
+- `https://aithinkdesk.appwrite.network/terms`
+
+### Remaining blocker
+
+The warning cannot be removed with frontend code alone.
+
+- The Gmail scopes requested by ThinkDesk (`gmail.readonly`, `gmail.send`, `gmail.modify`) require Google verification before Google will stop warning users.
+- The current Appwrite OAuth redirect still runs through `sgp.cloud.appwrite.io`, so Google can show `appwrite.io` or the Appwrite cloud domain during sign-in until the OAuth brand is fully verified.
+- In practice, the cleanest fix is to move Appwrite Auth to a custom domain you control, then use that same verified domain for the Google OAuth consent screen home page, privacy policy, and terms links.
+
+Until that is done, ThinkDesk can authenticate and sync Gmail correctly, but Google may still show an unverified-app warning during the Gmail consent step.
+
 ## Mobile Login Fix
 
 Older builds relied on Appwrite's direct OAuth session redirect behavior. That was unreliable on some phone browsers because the browser returned to the app before the Appwrite session was fully visible to the SPA.

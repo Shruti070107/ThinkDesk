@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Mail, Lock, User, ArrowRight, Sparkles, Chrome } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -225,9 +226,9 @@ export function AuthPage({ onLogin, onSignup, onGoogleAuth }: AuthPageProps) {
           {/* Terms */}
           <p className="mt-6 text-center text-xs text-muted-foreground">
             By continuing, you agree to our{' '}
-            <a href="#" className="underline hover:text-foreground">Terms of Service</a>
+            <Link to="/terms" className="underline hover:text-foreground">Terms of Service</Link>
             {' '}and{' '}
-            <a href="#" className="underline hover:text-foreground">Privacy Policy</a>
+            <Link to="/privacy" className="underline hover:text-foreground">Privacy Policy</Link>
           </p>
         </div>
       </div>
