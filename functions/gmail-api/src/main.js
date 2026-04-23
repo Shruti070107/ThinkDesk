@@ -2,10 +2,25 @@ import { Account, Client } from 'node-appwrite';
 import { google } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
 
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
+const ACCESS_TOKEN_REFRESH_BUFFER_MS = 60 * 1000;
+
 function decodeBase64(data) {
   if (!data) return '';
   const normalized = data.replace(/-/g, '+').replace(/_/g, '/');
   return Buffer.from(normalized, 'base64').toString('utf-8');
+}
+
+function normalizeEmail(value) {
+  if (!value) return '';
+
+  const trimmed = String(value).trim().toLowerCase();
+  try {
+    return decodeURIComponent(trimmed);
+  } catch {
+    return trimmed;
+  }
 }
 
 function decodeEmailBody(payload) {
@@ -128,12 +143,59 @@ function getAuthErrorMessage(account) {
     return 'Connect a Google account through Appwrite to sync Gmail.';
   }
 
-  return `Reconnect ${account} through Appwrite Google sign-in to restore Gmail sync.`;
+  return `Reconnect ${account} using Connect Gmail Account and approve Gmail access to restore sync.`;
 }
 
 function isGoogleAuthError(err) {
   const status = err?.code || err?.status || err?.response?.status;
   return status === 401 || status === 403;
+}
+
+function hasGoogleTokens(identity) {
+  return Boolean(identity?.providerAccessToken || identity?.providerRefreshToken);
+}
+
+function getAccessTokenExpiry(identity) {
+  const expiry = Date.parse(identity?.providerAccessTokenExpiry || '');
+  return Number.isFinite(expiry) ? expiry : null;
+}
+
+function isAccessTokenExpiring(identity) {
+  const expiry = getAccessTokenExpiry(identity);
+  return expiry !== null && expiry <= Date.now() + ACCESS_TOKEN_REFRESH_BUFFER_MS;
+}
+
+function createOAuthClient(identity) {
+  const oauth2 = new OAuth2Client(
+    GOOGLE_CLIENT_ID || undefined,
+    GOOGLE_CLIENT_SECRET || undefined
+  );
+
+  oauth2.setCredentials({
+    access_token: identity.providerAccessToken || undefined,
+    refresh_token: identity.providerRefreshToken || undefined,
+    expiry_date: getAccessTokenExpiry(identity) ?? undefined,
+  });
+
+  return oauth2;
+}
+
+async function refreshOAuthAccessToken(oauth2, identity) {
+  if (!identity?.providerRefreshToken || !GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+    return false;
+  }
+
+  try {
+    const refreshed = await oauth2.refreshAccessToken();
+    oauth2.setCredentials({
+      access_token: refreshed.credentials.access_token || oauth2.credentials.access_token,
+      refresh_token: identity.providerRefreshToken,
+      expiry_date: refreshed.credentials.expiry_date || oauth2.credentials.expiry_date,
+    });
+    return Boolean(oauth2.credentials.access_token);
+  } catch {
+    return false;
+  }
 }
 
 async function loadGoogleContext(req) {
@@ -165,19 +227,19 @@ async function loadGoogleContext(req) {
     identity =>
       identity.provider?.toLowerCase() === 'google' &&
       identity.providerEmail &&
-      identity.providerAccessToken
+      hasGoogleTokens(identity)
   );
 
   return { account, user, currentSession, googleIdentities };
 }
 
 function selectGoogleIdentity(context, requestedEmail) {
-  const requested = requestedEmail?.toLowerCase().trim();
+  const requested = normalizeEmail(requestedEmail);
 
   if (requested) {
     return (
       context.googleIdentities.find(
-        identity => identity.providerEmail.toLowerCase() === requested
+        identity => normalizeEmail(identity.providerEmail) === requested
       ) || null
     );
   }
@@ -194,7 +256,7 @@ function selectGoogleIdentity(context, requestedEmail) {
 
   if (context.user?.email) {
     const byUserEmail = context.googleIdentities.find(
-      identity => identity.providerEmail.toLowerCase() === context.user.email.toLowerCase()
+      identity => normalizeEmail(identity.providerEmail) === normalizeEmail(context.user.email)
     );
 
     if (byUserEmail) {
@@ -224,7 +286,7 @@ async function refreshCurrentGoogleIdentity(context, targetIdentity) {
     identity =>
       identity.provider?.toLowerCase() === 'google' &&
       identity.providerEmail &&
-      identity.providerAccessToken
+      hasGoogleTokens(identity)
   );
 }
 
@@ -237,11 +299,10 @@ async function createGmailClient(context, requestedEmail) {
     throw error;
   }
 
-  const oauth2 = new OAuth2Client();
-  oauth2.setCredentials({
-    access_token: identity.providerAccessToken,
-  });
-
+  const oauth2 = createOAuthClient(identity);
+  if (isAccessTokenExpiring(identity)) {
+    await refreshOAuthAccessToken(oauth2, identity);
+  }
   let gmail = google.gmail({ version: 'v1', auth: oauth2 });
 
   try {
@@ -250,6 +311,19 @@ async function createGmailClient(context, requestedEmail) {
   } catch (err) {
     if (!isGoogleAuthError(err)) {
       throw err;
+    }
+
+    const refreshedWithGoogle = await refreshOAuthAccessToken(oauth2, identity);
+    if (refreshedWithGoogle) {
+      gmail = google.gmail({ version: 'v1', auth: oauth2 });
+      try {
+        await gmail.users.getProfile({ userId: 'me' });
+        return { gmail, identity };
+      } catch (refreshError) {
+        if (!isGoogleAuthError(refreshError)) {
+          throw refreshError;
+        }
+      }
     }
 
     const refreshedIdentities = await refreshCurrentGoogleIdentity(context, identity);
@@ -271,9 +345,10 @@ async function createGmailClient(context, requestedEmail) {
       throw error;
     }
 
-    oauth2.setCredentials({
-      access_token: identity.providerAccessToken,
-    });
+    oauth2.setCredentials(createOAuthClient(identity).credentials);
+    if (isAccessTokenExpiring(identity)) {
+      await refreshOAuthAccessToken(oauth2, identity);
+    }
     gmail = google.gmail({ version: 'v1', auth: oauth2 });
     await gmail.users.getProfile({ userId: 'me' });
     return { gmail, identity };

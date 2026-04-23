@@ -67,13 +67,20 @@ ThinkDesk no longer depends on the old localhost Gmail OAuth server or a `gmail_
 The current Gmail flow is:
 
 1. Enable the Google provider in Appwrite Auth.
-2. Start Google sign-in from ThinkDesk with Gmail scopes.
-3. Return to ThinkDesk with Appwrite OAuth token parameters.
-4. Finish the Appwrite session in the browser callback step.
-5. Execute the `gmail-api` Appwrite Function with the signed-in user's Appwrite session.
-6. Read connected Google identities from Appwrite and use their provider access token for Gmail API calls.
+2. Use Google login with profile-only scopes for normal sign-in.
+3. Start `Connect Gmail Account` only when the user wants inbox sync, which opens a second Google consent flow with Gmail scopes.
+4. Return to ThinkDesk with Appwrite OAuth token parameters.
+5. Finish the Appwrite session in the browser callback step.
+6. Execute the `gmail-api` Appwrite Function with the signed-in user's Appwrite session.
+7. Read connected Google identities from Appwrite and use their provider access token or refresh token for Gmail API calls.
 
 This keeps Gmail access tied to the Appwrite-authenticated user and fixes the mobile redirect/session race that could leave users stuck after Google sign-in.
+
+## Google Verification
+
+Google login should not request Gmail scopes anymore, so normal sign-in avoids the Gmail consent wall.
+
+The separate Gmail connect flow still uses sensitive Google scopes. Until the Google OAuth app is fully approved in Google Cloud, Google can still show a warning screen for Gmail connect. During testing, add the Gmail accounts you use to the Google OAuth consent screen test-user list and make sure the consent screen declares the exact Gmail scopes requested by ThinkDesk.
 
 ## Mobile Login Fix
 
